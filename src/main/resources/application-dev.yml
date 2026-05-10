@@ -1,0 +1,6 @@
+spring:
+  datasource:
+    url: ${CLIMBDESK_DATASOURCE_URL}
+    username: ${CLIMBDESK_DATASOURCE_USERNAME}
+    password: ${CLIMBDESK_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver

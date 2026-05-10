@@ -45,6 +45,12 @@ Draft
 PostgreSQL 16+
 ```
 
+## Managed Database Policy
+
+개발/배포용 관리형 PostgreSQL은 Neon을 기준으로 설정한다.
+애플리케이션은 Neon 연결 정보를 환경 변수로 주입받으며, DB URL, 사용자명, 비밀번호 같은 secret은 repository에 저장하지 않는다.
+자동화된 통합 테스트는 Neon에 직접 연결하지 않고 PostgreSQL Testcontainers를 사용한다.
+
 ## ID Policy
 
 ```plain text
@@ -1152,6 +1158,15 @@ status: ACTIVE
 ```plain text
 PostgreSQL을 기준 DBMS로 사용한다.
 ```
+
+## RD-01A. Managed Development Database
+
+```plain text
+개발/배포용 관리형 PostgreSQL은 Neon을 사용한다.
+```
+
+Neon 연결 정보는 환경 변수로만 주입한다.
+테스트 자동화는 Neon이 아니라 PostgreSQL Testcontainers를 사용한다.
 
 ## RD-02. Duplicate Reservation
 
