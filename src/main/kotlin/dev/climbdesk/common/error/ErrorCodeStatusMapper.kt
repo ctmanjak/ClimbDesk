@@ -1,0 +1,26 @@
+package dev.climbdesk.common.error
+
+import org.springframework.http.HttpStatus
+
+object ErrorCodeStatusMapper {
+    fun statusOf(errorCode: ErrorCode): HttpStatus =
+        when (errorCode) {
+            ErrorCode.VALIDATION_FAILED -> HttpStatus.BAD_REQUEST
+            ErrorCode.UNAUTHORIZED,
+            ErrorCode.INVALID_CREDENTIALS,
+            -> HttpStatus.UNAUTHORIZED
+            ErrorCode.FORBIDDEN,
+            ErrorCode.ADMIN_USER_INACTIVE,
+            -> HttpStatus.FORBIDDEN
+            ErrorCode.RESOURCE_NOT_FOUND,
+            ErrorCode.ADMIN_USER_NOT_FOUND,
+            ErrorCode.MEMBER_NOT_FOUND,
+            ErrorCode.PASS_PRODUCT_NOT_FOUND,
+            ErrorCode.MEMBER_PASS_NOT_FOUND,
+            ErrorCode.CLASS_SESSION_NOT_FOUND,
+            ErrorCode.RESERVATION_NOT_FOUND,
+            -> HttpStatus.NOT_FOUND
+            ErrorCode.INTERNAL_SERVER_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR
+            else -> HttpStatus.CONFLICT
+        }
+}
