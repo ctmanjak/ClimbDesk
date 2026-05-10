@@ -201,7 +201,7 @@ Controller → Repository 직접 호출
 ## 5.1 Context 기준 패키지
 
 ```plain text
-com.climbdesk
+dev.climbdesk
 ├─ auth
 ├─ member
 ├─ pass
