@@ -15,12 +15,13 @@ class AuthApplicationService(
         val adminUser = adminUserRepository.findByEmail(command.email)
             ?: throw ApplicationException(ErrorCode.INVALID_CREDENTIALS)
 
-        if (!adminUser.isActive()) {
-            throw ApplicationException(ErrorCode.ADMIN_USER_INACTIVE)
-        }
-
+        // Verify password first to ensure constant-time behavior
         if (!passwordVerifier.matches(command.password, adminUser.passwordHash)) {
             throw ApplicationException(ErrorCode.INVALID_CREDENTIALS)
+        }
+
+        if (!adminUser.isActive()) {
+            throw ApplicationException(ErrorCode.ADMIN_USER_INACTIVE)
         }
 
         val accessToken = accessTokenIssuer.issue(adminUser)
