@@ -10,4 +10,10 @@ class AdminUserPersistenceAdapter(
 ) : AdminUserRepository {
     override fun findByEmail(email: String): AdminUser? =
         adminUserJpaRepository.findByEmail(email)?.toDomain()
+
+    override fun existsByEmail(email: String): Boolean =
+        adminUserJpaRepository.existsByEmail(email)
+
+    override fun save(adminUser: AdminUser): AdminUser =
+        adminUserJpaRepository.save(adminUser.toJpaEntity()).toDomain()
 }

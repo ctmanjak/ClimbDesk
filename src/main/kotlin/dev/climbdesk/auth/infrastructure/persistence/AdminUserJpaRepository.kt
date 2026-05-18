@@ -4,4 +4,5 @@ import org.springframework.data.jpa.repository.JpaRepository
 
 interface AdminUserJpaRepository : JpaRepository<AdminUserJpaEntity, Long> {
     fun findByEmail(email: String): AdminUserJpaEntity?
+    fun existsByEmail(email: String): Boolean
 }

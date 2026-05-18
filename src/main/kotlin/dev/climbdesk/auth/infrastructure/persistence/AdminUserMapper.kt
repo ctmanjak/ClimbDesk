@@ -9,4 +9,14 @@ fun AdminUserJpaEntity.toDomain(): AdminUser =
         passwordHash = passwordHash,
         role = role,
         status = status,
+        createdAt = createdAt,
+    )
+
+fun AdminUser.toJpaEntity(): AdminUserJpaEntity =
+    AdminUserJpaEntity(
+        id = id,
+        email = email,
+        passwordHash = passwordHash,
+        role = role,
+        status = status,
     )

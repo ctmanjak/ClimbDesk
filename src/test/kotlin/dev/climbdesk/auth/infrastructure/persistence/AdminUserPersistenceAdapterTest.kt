@@ -45,4 +45,23 @@ class AdminUserPersistenceAdapterTest @Autowired constructor(
     fun `findByEmail returns null when admin user does not exist`() {
         assertThat(adapter.findByEmail("missing@climbdesk.local")).isNull()
     }
+
+    @Test
+    fun `save persists admin user and returns generated fields`() {
+        val adminUser = adapter.save(
+            dev.climbdesk.auth.domain.AdminUser.create(
+                email = "staff@climbdesk.local",
+                passwordHash = "hashed-password",
+                role = AdminUserRole.STAFF,
+            ),
+        )
+
+        assertThat(adminUser.id).isPositive()
+        assertThat(adminUser.email).isEqualTo("staff@climbdesk.local")
+        assertThat(adminUser.passwordHash).isEqualTo("hashed-password")
+        assertThat(adminUser.role).isEqualTo(AdminUserRole.STAFF)
+        assertThat(adminUser.status).isEqualTo(AdminUserStatus.ACTIVE)
+        assertThat(adminUser.createdAt).isNotNull()
+        assertThat(adapter.existsByEmail("staff@climbdesk.local")).isTrue()
+    }
 }
