@@ -5,6 +5,7 @@ import jakarta.validation.ConstraintViolationException
 import org.slf4j.MDC
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.access.AccessDeniedException
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.validation.FieldError
 import org.springframework.web.bind.MethodArgumentNotValidException
@@ -83,6 +84,18 @@ class GlobalExceptionHandler {
             status = HttpStatus.BAD_REQUEST,
             errorCode = ErrorCode.VALIDATION_FAILED,
             message = ErrorCode.VALIDATION_FAILED.defaultMessage,
+            request = request,
+        )
+
+    @ExceptionHandler(AccessDeniedException::class)
+    fun handleAccessDenied(
+        exception: AccessDeniedException,
+        request: HttpServletRequest,
+    ): ResponseEntity<ErrorResponse> =
+        errorResponse(
+            status = HttpStatus.FORBIDDEN,
+            errorCode = ErrorCode.FORBIDDEN,
+            message = ErrorCode.FORBIDDEN.defaultMessage,
             request = request,
         )
 

@@ -6,6 +6,7 @@ import org.hamcrest.Matchers.matchesPattern
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController
 
 @ExtendWith(SpringExtension::class)
 @WebMvcTest(controllers = [ErrorHandlingTestController::class])
+@AutoConfigureMockMvc(addFilters = false)
 @Import(GlobalExceptionHandler::class)
 class GlobalExceptionHandlerTest @Autowired constructor(
     private val mockMvc: MockMvc,
