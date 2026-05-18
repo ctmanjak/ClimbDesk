@@ -1,6 +1,7 @@
 package dev.climbdesk.auth.infrastructure.adapter
 
 import dev.climbdesk.auth.application.PasswordVerifier
+import dev.climbdesk.auth.application.PasswordHasher
 import org.springframework.stereotype.Component
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -9,7 +10,9 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
 @Component
-class Pbkdf2PasswordVerifier : PasswordVerifier {
+class Pbkdf2PasswordVerifier : PasswordVerifier, PasswordHasher {
+    override fun hash(rawPassword: String): String = encode(rawPassword)
+
     override fun matches(rawPassword: String, passwordHash: String): Boolean {
         val parsedHash = Pbkdf2PasswordHash.parse(passwordHash) ?: return false
         val actualHash = hash(rawPassword, parsedHash.salt, parsedHash.iterations, parsedHash.hash.size)

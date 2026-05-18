@@ -62,15 +62,64 @@ class AuthApplicationServiceTest {
         assertThat(tokenIssuer.issueCount).isZero()
     }
 
+    @Test
+    fun `create admin user stores hashed password and defaults to active`() {
+        val repository = RecordingAdminUserRepository()
+        val service = authService(
+            adminUser = null,
+            passwordMatches = false,
+            repository = repository,
+            passwordHasher = StaticPasswordHasher("hashed-password"),
+        )
+
+        val result = service.createAdminUser(
+            CreateAdminUserCommand(
+                email = "staff@climbdesk.local",
+                password = "password1234",
+                role = AdminUserRole.STAFF,
+            ),
+        )
+
+        assertThat(result.id).isEqualTo(10)
+        assertThat(result.email).isEqualTo("staff@climbdesk.local")
+        assertThat(result.role).isEqualTo(AdminUserRole.STAFF)
+        assertThat(result.status).isEqualTo(AdminUserStatus.ACTIVE)
+        assertThat(repository.savedAdminUser?.passwordHash).isEqualTo("hashed-password")
+        assertThat(repository.savedAdminUser?.passwordHash).isNotEqualTo("password1234")
+    }
+
+    @Test
+    fun `create admin user rejects duplicate email`() {
+        val service = authService(
+            adminUser = adminUser(status = AdminUserStatus.ACTIVE),
+            passwordMatches = false,
+        )
+
+        assertThatThrownBy {
+            service.createAdminUser(
+                CreateAdminUserCommand(
+                    email = "manager@climbdesk.local",
+                    password = "password1234",
+                    role = AdminUserRole.MANAGER,
+                ),
+            )
+        }.isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.DUPLICATE_ADMIN_USER_EMAIL)
+    }
+
     private fun authService(
         adminUser: AdminUser?,
         passwordMatches: Boolean,
         issuedToken: IssuedAccessToken = IssuedAccessToken("unused-token", 3600),
         tokenIssuer: AccessTokenIssuer = RecordingAccessTokenIssuer(issuedToken),
+        repository: AdminUserRepository = StaticAdminUserRepository(adminUser),
+        passwordHasher: PasswordHasher = StaticPasswordHasher("unused-hash"),
     ): AuthApplicationService =
         AuthApplicationService(
-            adminUserRepository = StaticAdminUserRepository(adminUser),
+            adminUserRepository = repository,
             passwordVerifier = StaticPasswordVerifier(passwordMatches),
+            passwordHasher = passwordHasher,
             accessTokenIssuer = tokenIssuer,
         )
 
@@ -88,12 +137,34 @@ private class StaticAdminUserRepository(
     private val adminUser: AdminUser?,
 ) : AdminUserRepository {
     override fun findByEmail(email: String): AdminUser? = adminUser
+    override fun existsByEmail(email: String): Boolean = adminUser?.email == email
+    override fun save(adminUser: AdminUser): AdminUser = adminUser
 }
 
 private class StaticPasswordVerifier(
     private val matches: Boolean,
 ) : PasswordVerifier {
     override fun matches(rawPassword: String, passwordHash: String): Boolean = matches
+}
+
+private class StaticPasswordHasher(
+    private val hash: String,
+) : PasswordHasher {
+    override fun hash(rawPassword: String): String = hash
+}
+
+private class RecordingAdminUserRepository : AdminUserRepository {
+    var savedAdminUser: AdminUser? = null
+        private set
+
+    override fun findByEmail(email: String): AdminUser? = null
+
+    override fun existsByEmail(email: String): Boolean = false
+
+    override fun save(adminUser: AdminUser): AdminUser {
+        savedAdminUser = adminUser
+        return adminUser.copy(id = 10, createdAt = java.time.Instant.parse("2026-05-01T01:00:00Z"))
+    }
 }
 
 private class RecordingAccessTokenIssuer(

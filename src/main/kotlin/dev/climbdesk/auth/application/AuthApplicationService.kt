@@ -1,5 +1,6 @@
 package dev.climbdesk.auth.application
 
+import dev.climbdesk.auth.domain.AdminUser
 import dev.climbdesk.auth.domain.AdminUserRepository
 import dev.climbdesk.common.error.ApplicationException
 import dev.climbdesk.common.error.ErrorCode
@@ -10,8 +11,24 @@ import org.springframework.transaction.annotation.Transactional
 class AuthApplicationService(
     private val adminUserRepository: AdminUserRepository,
     private val passwordVerifier: PasswordVerifier,
+    private val passwordHasher: PasswordHasher,
     private val accessTokenIssuer: AccessTokenIssuer,
 ) {
+    @Transactional
+    fun createAdminUser(command: CreateAdminUserCommand): CreateAdminUserResult {
+        if (adminUserRepository.existsByEmail(command.email)) {
+            throw ApplicationException(ErrorCode.DUPLICATE_ADMIN_USER_EMAIL)
+        }
+
+        val adminUser = AdminUser.create(
+            email = command.email,
+            passwordHash = passwordHasher.hash(command.password),
+            role = command.role,
+        )
+
+        return CreateAdminUserResult.from(adminUserRepository.save(adminUser))
+    }
+
     @Transactional(readOnly = true)
     fun login(command: LoginCommand): LoginResult {
         val adminUser = adminUserRepository.findByEmail(command.email)
