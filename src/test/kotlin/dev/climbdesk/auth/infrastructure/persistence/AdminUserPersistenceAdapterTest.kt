@@ -2,7 +2,10 @@ package dev.climbdesk.auth.infrastructure.persistence
 
 import dev.climbdesk.auth.domain.AdminUserRole
 import dev.climbdesk.auth.domain.AdminUserStatus
+import dev.climbdesk.common.error.ApplicationException
+import dev.climbdesk.common.error.ErrorCode
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest
@@ -63,5 +66,29 @@ class AdminUserPersistenceAdapterTest @Autowired constructor(
         assertThat(adminUser.status).isEqualTo(AdminUserStatus.ACTIVE)
         assertThat(adminUser.createdAt).isNotNull()
         assertThat(adapter.existsByEmail("staff@climbdesk.local")).isTrue()
+    }
+
+    @Test
+    fun `save maps duplicate email constraint violation to duplicate admin user email`() {
+        adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "staff@climbdesk.local",
+                passwordHash = "existing-hash",
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        assertThatThrownBy {
+            adapter.save(
+                dev.climbdesk.auth.domain.AdminUser.create(
+                    email = "staff@climbdesk.local",
+                    passwordHash = "new-hash",
+                    role = AdminUserRole.STAFF,
+                ),
+            )
+        }.isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.DUPLICATE_ADMIN_USER_EMAIL)
     }
 }

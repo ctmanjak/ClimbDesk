@@ -19,4 +19,5 @@ fun AdminUser.toJpaEntity(): AdminUserJpaEntity =
         passwordHash = passwordHash,
         role = role,
         status = status,
+        createdAt = createdAt,
     )

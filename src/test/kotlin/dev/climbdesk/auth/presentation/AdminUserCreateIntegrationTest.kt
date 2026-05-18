@@ -76,6 +76,8 @@ class AdminUserCreateIntegrationTest @Autowired constructor(
             status { isForbidden() }
             jsonPath("$.code") { value("FORBIDDEN") }
         }
+
+        assertThat(adminUserJpaRepository.existsByEmail("new-staff@climbdesk.local")).isFalse()
     }
 
     private fun accessTokenFor(email: String, role: AdminUserRole): String {

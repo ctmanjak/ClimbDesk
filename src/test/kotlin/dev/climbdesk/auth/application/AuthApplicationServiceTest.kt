@@ -137,7 +137,7 @@ private class StaticAdminUserRepository(
     private val adminUser: AdminUser?,
 ) : AdminUserRepository {
     override fun findByEmail(email: String): AdminUser? = adminUser
-    override fun existsByEmail(email: String): Boolean = adminUser != null
+    override fun existsByEmail(email: String): Boolean = adminUser?.email == email
     override fun save(adminUser: AdminUser): AdminUser = adminUser
 }
 
