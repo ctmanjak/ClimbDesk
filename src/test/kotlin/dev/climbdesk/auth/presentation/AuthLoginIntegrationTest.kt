@@ -109,4 +109,24 @@ class AuthLoginIntegrationTest @Autowired constructor(
         }
     }
 
+    @Test
+    fun `inactive admin user with invalid password returns invalid credentials`() {
+        adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "manager@climbdesk.local",
+                passwordHash = Pbkdf2PasswordVerifier.encode("password1234"),
+                role = AdminUserRole.MANAGER,
+                status = AdminUserStatus.INACTIVE,
+            ),
+        )
+
+        mockMvc.post("/api/v1/auth/login") {
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"email":"manager@climbdesk.local","password":"wrong-password"}"""
+        }.andExpect {
+            status { isUnauthorized() }
+            jsonPath("$.code") { value("INVALID_CREDENTIALS") }
+        }
+    }
+
 }

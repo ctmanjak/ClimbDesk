@@ -20,4 +20,23 @@ class Pbkdf2PasswordVerifierTest {
 
         assertThat(passwordVerifier.matches("wrong-password", passwordHash)).isFalse()
     }
+
+    @Test
+    fun `malformed hash with invalid iterations fails closed`() {
+        val passwordHash = Pbkdf2PasswordVerifier.encode("password1234")
+        val parts = passwordHash.split("$").toMutableList()
+        parts[1] = "not-a-number"
+        val malformedHash = parts.joinToString("$")
+
+        assertThat(passwordVerifier.matches("password1234", malformedHash)).isFalse()
+    }
+
+    @Test
+    fun `malformed hash shape fails closed`() {
+        val passwordHash = Pbkdf2PasswordVerifier.encode("password1234")
+        val malformedHash = passwordHash.substringBeforeLast("$")
+
+        assertThat(passwordVerifier.matches("password1234", malformedHash)).isFalse()
+        assertThat(passwordVerifier.matches("password1234", "not-a-pbkdf2-hash")).isFalse()
+    }
 }

@@ -15,10 +15,12 @@ class JwtAccessTokenIssuer(
     private val jwtProperties: JwtProperties,
     private val objectMapper: ObjectMapper,
 ) : AccessTokenIssuer {
-    override fun issue(adminUser: AdminUser): IssuedAccessToken {
+    init {
         require(jwtProperties.secret.isNotBlank()) { "JWT secret must be configured." }
         require(jwtProperties.expiresIn > 0) { "JWT expiry must be positive." }
+    }
 
+    override fun issue(adminUser: AdminUser): IssuedAccessToken {
         val now = Instant.now().epochSecond
         val header = mapOf(
             "alg" to "HS256",
