@@ -2,6 +2,12 @@ spring:
   application:
     name: climbdesk
 
+climbdesk:
+  auth:
+    jwt:
+      secret: ${CLIMBDESK_JWT_SECRET:}
+      expires-in: ${CLIMBDESK_JWT_EXPIRES_IN:3600}
+
 management:
   endpoints:
     web:

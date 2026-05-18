@@ -4,6 +4,7 @@ import dev.climbdesk.auth.domain.AdminUserRepository
 import dev.climbdesk.common.error.ApplicationException
 import dev.climbdesk.common.error.ErrorCode
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 
 @Service
 class AuthApplicationService(
@@ -11,6 +12,7 @@ class AuthApplicationService(
     private val passwordVerifier: PasswordVerifier,
     private val accessTokenIssuer: AccessTokenIssuer,
 ) {
+    @Transactional(readOnly = true)
     fun login(command: LoginCommand): LoginResult {
         val adminUser = adminUserRepository.findByEmail(command.email)
             ?: throw ApplicationException(ErrorCode.INVALID_CREDENTIALS)
