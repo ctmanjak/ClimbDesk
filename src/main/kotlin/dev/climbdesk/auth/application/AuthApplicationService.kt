@@ -2,6 +2,8 @@ package dev.climbdesk.auth.application
 
 import dev.climbdesk.auth.domain.AdminUser
 import dev.climbdesk.auth.domain.AdminUserRepository
+import dev.climbdesk.auth.domain.AdminUserRole
+import dev.climbdesk.auth.domain.AdminUserStatus
 import dev.climbdesk.common.error.ApplicationException
 import dev.climbdesk.common.error.ErrorCode
 import org.springframework.stereotype.Service
@@ -29,6 +31,32 @@ class AuthApplicationService(
         return CreateAdminUserResult.from(adminUserRepository.save(adminUser))
     }
 
+    @Transactional
+    fun changeAdminUserRole(command: ChangeAdminUserRoleCommand): AdminUserManagementResult {
+        val adminUser = findAdminUser(command.adminUserId)
+        if (requiresLastActiveManagerProtection(adminUser, command.role, adminUser.status)) {
+            throw ApplicationException(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED)
+        }
+
+        return AdminUserManagementResult.from(adminUserRepository.save(adminUser.changeRole(command.role)))
+    }
+
+    @Transactional
+    fun activateAdminUser(adminUserId: Long): AdminUserManagementResult {
+        val adminUser = findAdminUser(adminUserId)
+        return AdminUserManagementResult.from(adminUserRepository.save(adminUser.activate()))
+    }
+
+    @Transactional
+    fun deactivateAdminUser(adminUserId: Long): AdminUserManagementResult {
+        val adminUser = findAdminUser(adminUserId)
+        if (requiresLastActiveManagerProtection(adminUser, adminUser.role, AdminUserStatus.INACTIVE)) {
+            throw ApplicationException(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED)
+        }
+
+        return AdminUserManagementResult.from(adminUserRepository.save(adminUser.deactivate()))
+    }
+
     @Transactional(readOnly = true)
     fun login(command: LoginCommand): LoginResult {
         val adminUser = adminUserRepository.findByEmail(command.email)
@@ -51,6 +79,19 @@ class AuthApplicationService(
             adminUser = AdminUserResult.from(adminUser),
         )
     }
+
+    private fun findAdminUser(adminUserId: Long): AdminUser =
+        adminUserRepository.findById(adminUserId)
+            ?: throw ApplicationException(ErrorCode.ADMIN_USER_NOT_FOUND)
+
+    private fun requiresLastActiveManagerProtection(
+        adminUser: AdminUser,
+        nextRole: AdminUserRole,
+        nextStatus: AdminUserStatus,
+    ): Boolean =
+        adminUser.isActiveManager() &&
+            (nextRole != AdminUserRole.MANAGER || nextStatus != AdminUserStatus.ACTIVE) &&
+            adminUserRepository.countByStatusAndRole(AdminUserStatus.ACTIVE, AdminUserRole.MANAGER) == 1L
 
     companion object {
         private const val TOKEN_TYPE = "Bearer"

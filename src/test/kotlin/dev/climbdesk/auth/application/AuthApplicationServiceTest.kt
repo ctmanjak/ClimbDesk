@@ -108,6 +108,95 @@ class AuthApplicationServiceTest {
             .isEqualTo(ErrorCode.DUPLICATE_ADMIN_USER_EMAIL)
     }
 
+    @Test
+    fun `change admin user role saves changed role`() {
+        val repository = RecordingAdminUserRepository(
+            adminUser = adminUser(status = AdminUserStatus.ACTIVE),
+            activeManagerCount = 2,
+        )
+        val service = authService(
+            adminUser = null,
+            passwordMatches = false,
+            repository = repository,
+        )
+
+        val result = service.changeAdminUserRole(ChangeAdminUserRoleCommand(1, AdminUserRole.STAFF))
+
+        assertThat(result.role).isEqualTo(AdminUserRole.STAFF)
+        assertThat(repository.savedAdminUser?.role).isEqualTo(AdminUserRole.STAFF)
+    }
+
+    @Test
+    fun `change last active manager to staff fails`() {
+        val service = authService(
+            adminUser = null,
+            passwordMatches = false,
+            repository = RecordingAdminUserRepository(
+                adminUser = adminUser(status = AdminUserStatus.ACTIVE),
+                activeManagerCount = 1,
+            ),
+        )
+
+        assertThatThrownBy {
+            service.changeAdminUserRole(ChangeAdminUserRoleCommand(1, AdminUserRole.STAFF))
+        }.isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED)
+    }
+
+    @Test
+    fun `inactive admin user role can be changed`() {
+        val repository = RecordingAdminUserRepository(
+            adminUser = adminUser(status = AdminUserStatus.INACTIVE),
+            activeManagerCount = 1,
+        )
+        val service = authService(
+            adminUser = null,
+            passwordMatches = false,
+            repository = repository,
+        )
+
+        val result = service.changeAdminUserRole(ChangeAdminUserRoleCommand(1, AdminUserRole.STAFF))
+
+        assertThat(result.role).isEqualTo(AdminUserRole.STAFF)
+    }
+
+    @Test
+    fun `activate admin user saves active status`() {
+        val repository = RecordingAdminUserRepository(
+            adminUser = adminUser(status = AdminUserStatus.INACTIVE),
+            activeManagerCount = 1,
+        )
+        val service = authService(
+            adminUser = null,
+            passwordMatches = false,
+            repository = repository,
+        )
+
+        val result = service.activateAdminUser(1)
+
+        assertThat(result.status).isEqualTo(AdminUserStatus.ACTIVE)
+        assertThat(repository.savedAdminUser?.status).isEqualTo(AdminUserStatus.ACTIVE)
+    }
+
+    @Test
+    fun `deactivate last active manager fails`() {
+        val service = authService(
+            adminUser = null,
+            passwordMatches = false,
+            repository = RecordingAdminUserRepository(
+                adminUser = adminUser(status = AdminUserStatus.ACTIVE),
+                activeManagerCount = 1,
+            ),
+        )
+
+        assertThatThrownBy {
+            service.deactivateAdminUser(1)
+        }.isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED)
+    }
+
     private fun authService(
         adminUser: AdminUser?,
         passwordMatches: Boolean,
@@ -136,8 +225,14 @@ class AuthApplicationServiceTest {
 private class StaticAdminUserRepository(
     private val adminUser: AdminUser?,
 ) : AdminUserRepository {
+    override fun findById(id: Long): AdminUser? = adminUser
     override fun findByEmail(email: String): AdminUser? = adminUser
     override fun existsByEmail(email: String): Boolean = adminUser?.email == email
+    override fun countByStatusAndRole(
+        status: AdminUserStatus,
+        role: AdminUserRole,
+    ): Long = if (adminUser?.status == status && adminUser.role == role) 1 else 0
+
     override fun save(adminUser: AdminUser): AdminUser = adminUser
 }
 
@@ -153,13 +248,23 @@ private class StaticPasswordHasher(
     override fun hash(rawPassword: String): String = hash
 }
 
-private class RecordingAdminUserRepository : AdminUserRepository {
+private class RecordingAdminUserRepository(
+    private val adminUser: AdminUser? = null,
+    private val activeManagerCount: Long = 0,
+) : AdminUserRepository {
     var savedAdminUser: AdminUser? = null
         private set
+
+    override fun findById(id: Long): AdminUser? = adminUser
 
     override fun findByEmail(email: String): AdminUser? = null
 
     override fun existsByEmail(email: String): Boolean = false
+
+    override fun countByStatusAndRole(
+        status: AdminUserStatus,
+        role: AdminUserRole,
+    ): Long = activeManagerCount
 
     override fun save(adminUser: AdminUser): AdminUser {
         savedAdminUser = adminUser
