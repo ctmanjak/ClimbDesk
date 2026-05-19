@@ -33,7 +33,7 @@ class AuthApplicationService(
 
     @Transactional
     fun changeAdminUserRole(command: ChangeAdminUserRoleCommand): AdminUserManagementResult {
-        val adminUser = findAdminUser(command.adminUserId)
+        val adminUser = findAdminUserForUpdate(command.adminUserId)
         if (requiresLastActiveManagerProtection(adminUser, command.role, adminUser.status)) {
             throw ApplicationException(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED)
         }
@@ -43,13 +43,13 @@ class AuthApplicationService(
 
     @Transactional
     fun activateAdminUser(adminUserId: Long): AdminUserManagementResult {
-        val adminUser = findAdminUser(adminUserId)
+        val adminUser = findAdminUserForUpdate(adminUserId)
         return AdminUserManagementResult.from(adminUserRepository.save(adminUser.activate()))
     }
 
     @Transactional
     fun deactivateAdminUser(adminUserId: Long): AdminUserManagementResult {
-        val adminUser = findAdminUser(adminUserId)
+        val adminUser = findAdminUserForUpdate(adminUserId)
         if (requiresLastActiveManagerProtection(adminUser, adminUser.role, AdminUserStatus.INACTIVE)) {
             throw ApplicationException(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED)
         }
@@ -80,8 +80,8 @@ class AuthApplicationService(
         )
     }
 
-    private fun findAdminUser(adminUserId: Long): AdminUser =
-        adminUserRepository.findById(adminUserId)
+    private fun findAdminUserForUpdate(adminUserId: Long): AdminUser =
+        adminUserRepository.findByIdForUpdate(adminUserId)
             ?: throw ApplicationException(ErrorCode.ADMIN_USER_NOT_FOUND)
 
     private fun requiresLastActiveManagerProtection(
@@ -91,7 +91,9 @@ class AuthApplicationService(
     ): Boolean =
         adminUser.isActiveManager() &&
             (nextRole != AdminUserRole.MANAGER || nextStatus != AdminUserStatus.ACTIVE) &&
-            adminUserRepository.countByStatusAndRole(AdminUserStatus.ACTIVE, AdminUserRole.MANAGER) == 1L
+            adminUserRepository
+                .findByStatusAndRoleForUpdate(AdminUserStatus.ACTIVE, AdminUserRole.MANAGER)
+                .size == 1
 
     companion object {
         private const val TOKEN_TYPE = "Bearer"

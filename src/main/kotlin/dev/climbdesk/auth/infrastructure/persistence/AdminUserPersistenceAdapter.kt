@@ -17,6 +17,9 @@ class AdminUserPersistenceAdapter(
     override fun findById(id: Long): AdminUser? =
         adminUserJpaRepository.findById(id).orElse(null)?.toDomain()
 
+    override fun findByIdForUpdate(id: Long): AdminUser? =
+        adminUserJpaRepository.findByIdForUpdate(id)?.toDomain()
+
     override fun findByEmail(email: String): AdminUser? =
         adminUserJpaRepository.findByEmail(email)?.toDomain()
 
@@ -28,6 +31,12 @@ class AdminUserPersistenceAdapter(
         role: AdminUserRole,
     ): Long =
         adminUserJpaRepository.countByStatusAndRole(status, role)
+
+    override fun findByStatusAndRoleForUpdate(
+        status: AdminUserStatus,
+        role: AdminUserRole,
+    ): List<AdminUser> =
+        adminUserJpaRepository.findByStatusAndRoleForUpdate(status, role).map { it.toDomain() }
 
     override fun save(adminUser: AdminUser): AdminUser =
         try {

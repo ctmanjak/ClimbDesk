@@ -225,13 +225,30 @@ class AuthApplicationServiceTest {
 private class StaticAdminUserRepository(
     private val adminUser: AdminUser?,
 ) : AdminUserRepository {
-    override fun findById(id: Long): AdminUser? = adminUser
-    override fun findByEmail(email: String): AdminUser? = adminUser
+    override fun findById(id: Long): AdminUser? =
+        adminUser?.takeIf { it.id == id }
+
+    override fun findByIdForUpdate(id: Long): AdminUser? =
+        adminUser?.takeIf { it.id == id }
+
+    override fun findByEmail(email: String): AdminUser? =
+        adminUser?.takeIf { it.email == email }
+
     override fun existsByEmail(email: String): Boolean = adminUser?.email == email
+
     override fun countByStatusAndRole(
         status: AdminUserStatus,
         role: AdminUserRole,
     ): Long = if (adminUser?.status == status && adminUser.role == role) 1 else 0
+
+    override fun findByStatusAndRoleForUpdate(
+        status: AdminUserStatus,
+        role: AdminUserRole,
+    ): List<AdminUser> =
+        adminUser
+            ?.takeIf { it.status == status && it.role == role }
+            ?.let { listOf(it) }
+            ?: emptyList()
 
     override fun save(adminUser: AdminUser): AdminUser = adminUser
 }
@@ -255,16 +272,44 @@ private class RecordingAdminUserRepository(
     var savedAdminUser: AdminUser? = null
         private set
 
-    override fun findById(id: Long): AdminUser? = adminUser
+    override fun findById(id: Long): AdminUser? =
+        adminUser?.takeIf { it.id == id }
 
-    override fun findByEmail(email: String): AdminUser? = null
+    override fun findByIdForUpdate(id: Long): AdminUser? =
+        adminUser?.takeIf { it.id == id }
 
-    override fun existsByEmail(email: String): Boolean = false
+    override fun findByEmail(email: String): AdminUser? =
+        adminUser?.takeIf { it.email == email }
+
+    override fun existsByEmail(email: String): Boolean =
+        adminUser?.email == email
 
     override fun countByStatusAndRole(
         status: AdminUserStatus,
         role: AdminUserRole,
-    ): Long = activeManagerCount
+    ): Long =
+        activeManagerCount.takeIf { status == AdminUserStatus.ACTIVE && role == AdminUserRole.MANAGER } ?: 0
+
+    override fun findByStatusAndRoleForUpdate(
+        status: AdminUserStatus,
+        role: AdminUserRole,
+    ): List<AdminUser> {
+        if (status != AdminUserStatus.ACTIVE || role != AdminUserRole.MANAGER) {
+            return emptyList()
+        }
+
+        return List(activeManagerCount.toInt()) { index ->
+            adminUser
+                ?.takeIf { index == 0 && it.status == status && it.role == role }
+                ?: AdminUser(
+                    id = 100 + index.toLong(),
+                    email = "manager-$index@climbdesk.local",
+                    passwordHash = "hashed-password",
+                    role = AdminUserRole.MANAGER,
+                    status = AdminUserStatus.ACTIVE,
+                )
+        }
+    }
 
     override fun save(adminUser: AdminUser): AdminUser {
         savedAdminUser = adminUser
