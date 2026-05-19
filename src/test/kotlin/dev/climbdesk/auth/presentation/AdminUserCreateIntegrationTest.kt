@@ -14,6 +14,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 
@@ -78,6 +79,116 @@ class AdminUserCreateIntegrationTest @Autowired constructor(
         }
 
         assertThat(adminUserJpaRepository.existsByEmail("new-staff@climbdesk.local")).isFalse()
+    }
+
+    @Test
+    fun `manager can change admin user role`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val staff = adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "staff@climbdesk.local",
+                passwordHash = Pbkdf2PasswordVerifier.encode("password1234"),
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        mockMvc.patch("/api/v1/admin-users/${staff.id}/role") {
+            contentType = MediaType.APPLICATION_JSON
+            header("Authorization", "Bearer $managerToken")
+            content = """{"role":"MANAGER"}"""
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(staff.id) }
+            jsonPath("$.role") { value("MANAGER") }
+            jsonPath("$.status") { value("ACTIVE") }
+        }
+
+        assertThat(adminUserJpaRepository.findById(staff.id).orElseThrow().role).isEqualTo(AdminUserRole.MANAGER)
+    }
+
+    @Test
+    fun `staff cannot change admin user role`() {
+        val staffToken = accessTokenFor("staff@climbdesk.local", AdminUserRole.STAFF)
+        val target = adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "target@climbdesk.local",
+                passwordHash = Pbkdf2PasswordVerifier.encode("password1234"),
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        mockMvc.patch("/api/v1/admin-users/${target.id}/role") {
+            contentType = MediaType.APPLICATION_JSON
+            header("Authorization", "Bearer $staffToken")
+            content = """{"role":"MANAGER"}"""
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.code") { value("FORBIDDEN") }
+        }
+
+        assertThat(adminUserJpaRepository.findById(target.id).orElseThrow().role)
+            .isEqualTo(AdminUserRole.STAFF)
+    }
+
+    @Test
+    fun `manager can activate and deactivate admin user`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val staff = adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "staff@climbdesk.local",
+                passwordHash = Pbkdf2PasswordVerifier.encode("password1234"),
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        mockMvc.patch("/api/v1/admin-users/${staff.id}/deactivate") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.status") { value("INACTIVE") }
+        }
+
+        assertThat(adminUserJpaRepository.findById(staff.id).orElseThrow().status)
+            .isEqualTo(AdminUserStatus.INACTIVE)
+
+        mockMvc.patch("/api/v1/admin-users/${staff.id}/activate") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.status") { value("ACTIVE") }
+        }
+
+        assertThat(adminUserJpaRepository.findById(staff.id).orElseThrow().status)
+            .isEqualTo(AdminUserStatus.ACTIVE)
+    }
+
+    @Test
+    fun `last active manager cannot be demoted or deactivated`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val manager = adminUserJpaRepository.findByEmail("manager@climbdesk.local")!!
+
+        mockMvc.patch("/api/v1/admin-users/${manager.id}/role") {
+            contentType = MediaType.APPLICATION_JSON
+            header("Authorization", "Bearer $managerToken")
+            content = """{"role":"STAFF"}"""
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.code") { value("LAST_ACTIVE_MANAGER_REQUIRED") }
+        }
+
+        mockMvc.patch("/api/v1/admin-users/${manager.id}/deactivate") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.code") { value("LAST_ACTIVE_MANAGER_REQUIRED") }
+        }
+
+        val unchanged = adminUserJpaRepository.findById(manager.id).orElseThrow()
+        assertThat(unchanged.role).isEqualTo(AdminUserRole.MANAGER)
+        assertThat(unchanged.status).isEqualTo(AdminUserStatus.ACTIVE)
     }
 
     private fun accessTokenFor(email: String, role: AdminUserRole): String {

@@ -50,6 +50,47 @@ class AdminUserPersistenceAdapterTest @Autowired constructor(
     }
 
     @Test
+    fun `findById loads admin user from database`() {
+        val saved = adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "manager@climbdesk.local",
+                passwordHash = "hashed-password",
+                role = AdminUserRole.MANAGER,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        val adminUser = adapter.findById(saved.id)
+
+        assertThat(adminUser?.id).isEqualTo(saved.id)
+        assertThat(adminUser?.email).isEqualTo("manager@climbdesk.local")
+    }
+
+    @Test
+    fun `countByStatusAndRole counts active managers`() {
+        adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "manager@climbdesk.local",
+                passwordHash = "hashed-password",
+                role = AdminUserRole.MANAGER,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+        adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "staff@climbdesk.local",
+                passwordHash = "hashed-password",
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        val count = adapter.countByStatusAndRole(AdminUserStatus.ACTIVE, AdminUserRole.MANAGER)
+
+        assertThat(count).isEqualTo(1)
+    }
+
+    @Test
     fun `save persists admin user and returns generated fields`() {
         val adminUser = adapter.save(
             dev.climbdesk.auth.domain.AdminUser.create(

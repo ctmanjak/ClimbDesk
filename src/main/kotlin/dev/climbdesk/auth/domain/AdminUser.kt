@@ -12,6 +12,18 @@ data class AdminUser(
 ) {
     fun isActive(): Boolean = status == AdminUserStatus.ACTIVE
 
+    fun isActiveManager(): Boolean =
+        status == AdminUserStatus.ACTIVE && role == AdminUserRole.MANAGER
+
+    fun changeRole(role: AdminUserRole): AdminUser =
+        copy(role = role)
+
+    fun activate(): AdminUser =
+        copy(status = AdminUserStatus.ACTIVE)
+
+    fun deactivate(): AdminUser =
+        copy(status = AdminUserStatus.INACTIVE)
+
     companion object {
         fun create(
             email: String,

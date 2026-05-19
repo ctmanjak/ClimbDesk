@@ -1,6 +1,8 @@
 package dev.climbdesk.auth.presentation
 
 import dev.climbdesk.auth.application.AuthApplicationService
+import dev.climbdesk.auth.application.AdminUserManagementResult
+import dev.climbdesk.auth.application.ChangeAdminUserRoleCommand
 import dev.climbdesk.auth.application.CreateAdminUserCommand
 import dev.climbdesk.auth.application.CreateAdminUserResult
 import dev.climbdesk.auth.domain.AdminUserRole
@@ -17,6 +19,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.http.MediaType
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
 import java.time.Instant
 
@@ -86,5 +89,86 @@ class AdminUserControllerTest @Autowired constructor(
             status { isBadRequest() }
             jsonPath("$.code") { value("VALIDATION_FAILED") }
         }
+    }
+
+    @Test
+    fun `change admin user role returns changed admin user`() {
+        doReturn(
+            AdminUserManagementResult(
+                id = 2,
+                email = "staff@climbdesk.local",
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+                createdAt = Instant.parse("2026-05-01T01:00:00Z"),
+            ),
+        ).`when`(authApplicationService).changeAdminUserRole(
+            ChangeAdminUserRoleCommand(2, AdminUserRole.STAFF),
+        )
+
+        mockMvc.patch("/api/v1/admin-users/2/role") {
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"role":"STAFF"}"""
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(2) }
+            jsonPath("$.role") { value("STAFF") }
+            jsonPath("$.status") { value("ACTIVE") }
+        }
+    }
+
+    @Test
+    fun `change admin user role maps last active manager error`() {
+        doThrow(ApplicationException(ErrorCode.LAST_ACTIVE_MANAGER_REQUIRED))
+            .`when`(authApplicationService).changeAdminUserRole(
+                ChangeAdminUserRoleCommand(1, AdminUserRole.STAFF),
+            )
+
+        mockMvc.patch("/api/v1/admin-users/1/role") {
+            contentType = MediaType.APPLICATION_JSON
+            content = """{"role":"STAFF"}"""
+        }.andExpect {
+            status { isConflict() }
+            jsonPath("$.code") { value("LAST_ACTIVE_MANAGER_REQUIRED") }
+        }
+    }
+
+    @Test
+    fun `activate admin user returns active admin user`() {
+        doReturn(
+            AdminUserManagementResult(
+                id = 2,
+                email = "staff@climbdesk.local",
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+                createdAt = Instant.parse("2026-05-01T01:00:00Z"),
+            ),
+        ).`when`(authApplicationService).activateAdminUser(2)
+
+        mockMvc.patch("/api/v1/admin-users/2/activate")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.id") { value(2) }
+                jsonPath("$.status") { value("ACTIVE") }
+            }
+    }
+
+    @Test
+    fun `deactivate admin user returns inactive admin user`() {
+        doReturn(
+            AdminUserManagementResult(
+                id = 2,
+                email = "staff@climbdesk.local",
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.INACTIVE,
+                createdAt = Instant.parse("2026-05-01T01:00:00Z"),
+            ),
+        ).`when`(authApplicationService).deactivateAdminUser(2)
+
+        mockMvc.patch("/api/v1/admin-users/2/deactivate")
+            .andExpect {
+                status { isOk() }
+                jsonPath("$.id") { value(2) }
+                jsonPath("$.status") { value("INACTIVE") }
+            }
     }
 }
