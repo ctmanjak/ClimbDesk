@@ -43,4 +43,12 @@ class MemberApplicationService(
         memberRepository.findById(memberId)
             ?.let(MemberResult::from)
             ?: throw ApplicationException(ErrorCode.MEMBER_NOT_FOUND)
+
+    @Transactional
+    fun deactivateMember(memberId: Long): MemberResult {
+        val member = memberRepository.findById(memberId)
+            ?: throw ApplicationException(ErrorCode.MEMBER_NOT_FOUND)
+
+        return MemberResult.from(memberRepository.save(member.deactivate()))
+    }
 }

@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestParam
@@ -45,4 +46,11 @@ class MemberController(
         @PathVariable memberId: Long,
     ): MemberResponse =
         memberApplicationService.getMember(memberId).toResponse()
+
+    @PatchMapping("/{memberId}/deactivate")
+    @PreAuthorize("hasAnyRole('MANAGER', 'STAFF')")
+    fun deactivateMember(
+        @PathVariable memberId: Long,
+    ): MemberResponse =
+        memberApplicationService.deactivateMember(memberId).toResponse()
 }

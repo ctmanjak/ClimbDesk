@@ -93,6 +93,53 @@ class MemberApplicationServiceTest {
     }
 
     @Test
+    fun `deactivate member saves inactive member`() {
+        val repository = RecordingMemberRepository(
+            members = listOf(member(id = 10, name = "Hong Gil Dong")),
+        )
+        val service = MemberApplicationService(repository)
+
+        val result = service.deactivateMember(10)
+
+        assertThat(result.status).isEqualTo(MemberStatus.INACTIVE)
+        assertThat(result.deactivatedAt).isNotNull()
+        assertThat(repository.savedMember?.status).isEqualTo(MemberStatus.INACTIVE)
+        assertThat(repository.savedMember?.deactivatedAt).isNotNull()
+    }
+
+    @Test
+    fun `deactivate inactive member keeps original deactivated time`() {
+        val deactivatedAt = Instant.parse("2026-05-20T01:00:00Z")
+        val repository = RecordingMemberRepository(
+            members = listOf(
+                member(
+                    id = 10,
+                    name = "Hong Gil Dong",
+                    status = MemberStatus.INACTIVE,
+                    deactivatedAt = deactivatedAt,
+                ),
+            ),
+        )
+        val service = MemberApplicationService(repository)
+
+        val result = service.deactivateMember(10)
+
+        assertThat(result.status).isEqualTo(MemberStatus.INACTIVE)
+        assertThat(result.deactivatedAt).isEqualTo(deactivatedAt)
+        assertThat(repository.savedMember?.deactivatedAt).isEqualTo(deactivatedAt)
+    }
+
+    @Test
+    fun `deactivate missing member fails`() {
+        val service = MemberApplicationService(RecordingMemberRepository())
+
+        assertThatThrownBy { service.deactivateMember(404) }
+            .isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.MEMBER_NOT_FOUND)
+    }
+
+    @Test
     fun `list members returns paged members`() {
         val service = MemberApplicationService(
             RecordingMemberRepository(
@@ -166,12 +213,15 @@ private class RecordingMemberRepository(
 private fun member(
     id: Long,
     name: String,
+    status: MemberStatus = MemberStatus.ACTIVE,
+    deactivatedAt: Instant? = null,
 ): Member =
     Member(
         id = id,
         name = name,
         phone = "010-1234-${id.toString().padStart(4, '0')}",
         email = null,
-        status = MemberStatus.ACTIVE,
+        status = status,
         createdAt = Instant.parse("2026-05-01T01:00:00Z"),
+        deactivatedAt = deactivatedAt,
     )

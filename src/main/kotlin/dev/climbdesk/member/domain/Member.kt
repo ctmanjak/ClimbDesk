@@ -11,6 +11,16 @@ data class Member(
     val createdAt: Instant? = null,
     val deactivatedAt: Instant? = null,
 ) {
+    fun deactivate(deactivatedAt: Instant = Instant.now()): Member =
+        if (status == MemberStatus.INACTIVE) {
+            this
+        } else {
+            copy(
+                status = MemberStatus.INACTIVE,
+                deactivatedAt = deactivatedAt,
+            )
+        }
+
     companion object {
         fun create(
             name: String,
