@@ -3,9 +3,11 @@ package dev.climbdesk.member.infrastructure.persistence
 import dev.climbdesk.common.error.ApplicationException
 import dev.climbdesk.common.error.ErrorCode
 import dev.climbdesk.member.domain.Member
+import dev.climbdesk.member.domain.MemberPage
 import dev.climbdesk.member.domain.MemberRepository
 import org.hibernate.exception.ConstraintViolationException
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Repository
 import java.util.Locale
 
@@ -15,6 +17,21 @@ class MemberPersistenceAdapter(
 ) : MemberRepository {
     override fun existsByPhone(phone: String): Boolean =
         memberJpaRepository.existsByPhone(phone)
+
+    override fun findById(memberId: Long): Member? =
+        memberJpaRepository.findById(memberId)
+            .map(MemberJpaEntity::toDomain)
+            .orElse(null)
+
+    override fun findPage(page: Int, size: Int): MemberPage {
+        val memberPage = memberJpaRepository.findAllByOrderByIdDesc(PageRequest.of(page, size))
+        return MemberPage(
+            items = memberPage.content.map(MemberJpaEntity::toDomain),
+            page = memberPage.number,
+            size = memberPage.size,
+            totalElements = memberPage.totalElements,
+        )
+    }
 
     override fun save(member: Member): Member =
         try {

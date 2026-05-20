@@ -25,4 +25,14 @@ class MemberApplicationService(
 
         return CreateMemberResult.from(memberRepository.save(member))
     }
+
+    @Transactional(readOnly = true)
+    fun listMembers(page: Int, size: Int): MemberPageResult =
+        MemberPageResult.from(memberRepository.findPage(page, size))
+
+    @Transactional(readOnly = true)
+    fun getMember(memberId: Long): MemberResult =
+        memberRepository.findById(memberId)
+            ?.let(MemberResult::from)
+            ?: throw ApplicationException(ErrorCode.MEMBER_NOT_FOUND)
 }
