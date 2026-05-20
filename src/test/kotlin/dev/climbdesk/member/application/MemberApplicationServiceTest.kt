@@ -112,6 +112,26 @@ class MemberApplicationServiceTest {
         assertThat(result.totalElements).isEqualTo(3)
         assertThat(result.totalPages).isEqualTo(2)
     }
+
+    @Test
+    fun `list members rejects invalid page`() {
+        val service = MemberApplicationService(RecordingMemberRepository())
+
+        assertThatThrownBy { service.listMembers(page = -1, size = 20) }
+            .isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+    }
+
+    @Test
+    fun `list members rejects invalid size`() {
+        val service = MemberApplicationService(RecordingMemberRepository())
+
+        assertThatThrownBy { service.listMembers(page = 0, size = 0) }
+            .isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+    }
 }
 
 private class RecordingMemberRepository(

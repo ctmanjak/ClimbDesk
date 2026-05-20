@@ -117,13 +117,37 @@ class MemberQueryIntegrationTest @Autowired constructor(
     @Test
     fun `missing member returns member not found`() {
         val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val nonExistingMemberId = Long.MAX_VALUE
 
-        mockMvc.get("/api/v1/members/404") {
+        mockMvc.get("/api/v1/members/$nonExistingMemberId") {
             header("Authorization", "Bearer $managerToken")
         }.andExpect {
             status { isNotFound() }
             jsonPath("$.code") { value("MEMBER_NOT_FOUND") }
             jsonPath("$.message") { value("Member not found.") }
+        }
+    }
+
+    @Test
+    fun `member list rejects invalid paging`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+
+        mockMvc.get("/api/v1/members") {
+            param("page", "-1")
+            param("size", "20")
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.code") { value("VALIDATION_FAILED") }
+        }
+
+        mockMvc.get("/api/v1/members") {
+            param("page", "0")
+            param("size", "101")
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.code") { value("VALIDATION_FAILED") }
         }
     }
 
