@@ -25,4 +25,22 @@ class MemberApplicationService(
 
         return CreateMemberResult.from(memberRepository.save(member))
     }
+
+    @Transactional(readOnly = true)
+    fun listMembers(page: Int, size: Int): MemberPageResult {
+        if (page < 0) {
+            throw ApplicationException(ErrorCode.VALIDATION_FAILED, "page must be greater than or equal to 0.")
+        }
+        if (size !in 1..MAX_MEMBER_PAGE_SIZE) {
+            throw ApplicationException(ErrorCode.VALIDATION_FAILED, "size must be between 1 and $MAX_MEMBER_PAGE_SIZE.")
+        }
+
+        return MemberPageResult.from(memberRepository.findPage(page, size))
+    }
+
+    @Transactional(readOnly = true)
+    fun getMember(memberId: Long): MemberResult =
+        memberRepository.findById(memberId)
+            ?.let(MemberResult::from)
+            ?: throw ApplicationException(ErrorCode.MEMBER_NOT_FOUND)
 }
