@@ -9,6 +9,7 @@ import dev.climbdesk.auth.infrastructure.persistence.AdminUserJpaRepository
 import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaRepository
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -19,8 +20,10 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.patch
 import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.time.Instant
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -128,6 +131,59 @@ class MemberQueryIntegrationTest @Autowired constructor(
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(value = AdminUserRole::class, names = ["MANAGER", "STAFF"])
+    fun `manager and staff can deactivate member`(role: AdminUserRole) {
+        val token = accessTokenFor("${role.name.lowercase()}@climbdesk.local", role)
+        val member = saveMember(name = "Hong Gil Dong", phone = "010-1234-5678")
+
+        mockMvc.patch("/api/v1/members/${member.id}/deactivate") {
+            header("Authorization", "Bearer $token")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.id") { value(member.id) }
+            jsonPath("$.status") { value("INACTIVE") }
+            jsonPath("$.deactivatedAt") { isNotEmpty() }
+        }
+
+        val deactivated = memberJpaRepository.findById(member.id).orElseThrow()
+        assertThat(deactivated.status).isEqualTo(MemberStatus.INACTIVE)
+        assertThat(deactivated.deactivatedAt).isNotNull()
+    }
+
+    @Test
+    fun `deactivate member is idempotent`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val member = saveMember(
+            name = "Hong Gil Dong",
+            phone = "010-1234-5678",
+            status = MemberStatus.INACTIVE,
+            deactivatedAt = Instant.parse("2026-05-20T01:00:00Z"),
+        )
+
+        mockMvc.patch("/api/v1/members/${member.id}/deactivate") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.status") { value("INACTIVE") }
+            jsonPath("$.deactivatedAt") { value("2026-05-20T01:00:00Z") }
+        }
+    }
+
+    @Test
+    fun `deactivate missing member returns member not found`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val nonExistingMemberId = Long.MAX_VALUE
+
+        mockMvc.patch("/api/v1/members/$nonExistingMemberId/deactivate") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.code") { value("MEMBER_NOT_FOUND") }
+            jsonPath("$.message") { value("Member not found.") }
+        }
+    }
+
     @Test
     fun `member list rejects invalid paging`() {
         val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
@@ -171,17 +227,31 @@ class MemberQueryIntegrationTest @Autowired constructor(
             }
     }
 
+    @Test
+    fun `deactivate member requires jwt authorization`() {
+        val member = saveMember(name = "Hong Gil Dong", phone = "010-1234-5678")
+
+        mockMvc.patch("/api/v1/members/${member.id}/deactivate")
+            .andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.code") { value("UNAUTHORIZED") }
+            }
+    }
+
     private fun saveMember(
         name: String,
         phone: String,
         email: String? = null,
+        status: MemberStatus = MemberStatus.ACTIVE,
+        deactivatedAt: Instant? = null,
     ): MemberJpaEntity =
         memberJpaRepository.saveAndFlush(
             MemberJpaEntity(
                 name = name,
                 phone = phone,
                 email = email,
-                status = MemberStatus.ACTIVE,
+                status = status,
+                deactivatedAt = deactivatedAt,
             ),
         )
 
