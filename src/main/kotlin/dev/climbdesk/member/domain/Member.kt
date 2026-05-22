@@ -1,5 +1,7 @@
 package dev.climbdesk.member.domain
 
+import dev.climbdesk.common.error.DomainException
+import dev.climbdesk.common.error.ErrorCode
 import java.time.Instant
 
 data class Member(
@@ -11,6 +13,12 @@ data class Member(
     val createdAt: Instant? = null,
     val deactivatedAt: Instant? = null,
 ) {
+    fun ensureActive() {
+        if (status != MemberStatus.ACTIVE) {
+            throw DomainException(ErrorCode.MEMBER_INACTIVE)
+        }
+    }
+
     fun deactivate(deactivatedAt: Instant = Instant.now()): Member =
         if (status == MemberStatus.INACTIVE) {
             this

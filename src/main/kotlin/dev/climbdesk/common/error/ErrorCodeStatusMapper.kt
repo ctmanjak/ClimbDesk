@@ -12,6 +12,7 @@ object ErrorCodeStatusMapper {
             ErrorCode.FORBIDDEN,
             ErrorCode.ADMIN_USER_INACTIVE,
             -> HttpStatus.FORBIDDEN
+            ErrorCode.MEMBER_INACTIVE -> HttpStatus.CONFLICT
             ErrorCode.RESOURCE_NOT_FOUND,
             ErrorCode.ADMIN_USER_NOT_FOUND,
             ErrorCode.MEMBER_NOT_FOUND,
