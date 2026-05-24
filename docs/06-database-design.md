@@ -3,7 +3,7 @@
 > **Source of truth notice**
 >
 > The source of truth for this document is the Notion page `06 - Database Design`.
-> This Markdown file is a repository-local snapshot exported on 2026-05-08 for implementation reference.
+> This Markdown file is a repository-local snapshot synced on 2026-05-24 for implementation reference.
 > Do not treat this snapshot as an independent design decision record when it conflicts with Notion.
 
 > 목적: ClimbDesk MVP의 데이터 모델, 제약조건, 인덱스, 트랜잭션/락 쿼리, 마이그레이션 기준을 정의한다.
@@ -50,6 +50,14 @@ PostgreSQL 16+
 개발/배포용 관리형 PostgreSQL은 Neon을 기준으로 설정한다.
 애플리케이션은 Neon 연결 정보를 환경 변수로 주입받으며, DB URL, 사용자명, 비밀번호 같은 secret은 repository에 저장하지 않는다.
 자동화된 통합 테스트는 Neon에 직접 연결하지 않고 PostgreSQL Testcontainers를 사용한다.
+
+## Migration Ownership
+
+- 이 문서는 Flyway baseline migration의 기준이다.
+- 최초 MVP schema는 `V1__create_mvp_schema.sql`로 생성한다.
+- baseline migration은 FK와 constraint 정합성을 위해 아직 API/도메인이 구현되지 않은 이후 마일스톤 테이블도 포함한다.
+- Hibernate `ddl-auto`는 schema 생성 용도로 사용하지 않는다. 개발/테스트에서는 migration 적용 후 `validate` 또는 동등한 검증 모드로 매핑 불일치를 확인한다.
+- schema 변경은 문서와 migration을 함께 갱신한다.
 
 ## ID Policy
 
