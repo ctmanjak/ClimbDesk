@@ -3,7 +3,7 @@
 > **Source of truth notice**
 >
 > The source of truth for this document is the Notion page `07 - Test Strategy`.
-> This Markdown file is a repository-local snapshot exported on 2026-05-08 for implementation reference.
+> This Markdown file is a repository-local snapshot synced on 2026-05-24 for implementation reference.
 > Do not treat this snapshot as an independent design decision record when it conflicts with Notion.
 
 > 목적: ClimbDesk MVP의 핵심 품질 목표인 예약 정합성, 트랜잭션 원자성, 동시성 제어, 권한 정책, API 계약을 테스트 가능한 기준으로 정의한다.
@@ -127,7 +127,10 @@ PostgreSQL 16+ Testcontainers
 - 통합 테스트 DB는 PostgreSQL Testcontainers를 사용한다.
 - PostgreSQL partial unique index, `for update`, `timestamptz`, check constraint를 실제 DB에서 검증한다.
 - H2는 PostgreSQL과 lock/constraint/index 동작이 달라 핵심 테스트 환경으로 사용하지 않는다.
-- Migration은 Flyway 또는 Liquibase를 사용한다면 테스트 시작 시 실제 migration을 적용한다.
+- 핵심 통합 테스트는 Hibernate schema 생성이 아니라 Flyway baseline migration을 적용한 schema에서 실행한다.
+- `ddl-auto=create-drop`는 핵심 repository/application/API integration test의 기본 전략으로 사용하지 않는다.
+- JPA mapping은 migration 적용 후 `validate` 또는 동등한 검증 방식으로 확인한다.
+- 전환기 예외: MVP baseline migration 티켓이 구현되기 전까지 `MemberQueryIntegrationTest` 같은 기존 통합 테스트는 `ddl-auto=create-drop`를 계속 사용할 수 있다. 새로 작성하거나 migration하는 핵심 통합 테스트는 Flyway가 생성한 schema와 JPA validation을 사용한다.
 
 ## Time Strategy
 
