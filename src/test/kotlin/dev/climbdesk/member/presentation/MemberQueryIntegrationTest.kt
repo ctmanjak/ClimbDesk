@@ -32,7 +32,7 @@ import java.time.Instant
         "climbdesk.auth.jwt.expires-in=3600",
         "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///test",
         "spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
-        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.jpa.hibernate.ddl-auto=validate",
     ],
 )
 @AutoConfigureMockMvc
