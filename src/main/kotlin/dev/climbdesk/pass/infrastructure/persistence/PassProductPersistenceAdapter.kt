@@ -26,5 +26,5 @@ class PassProductPersistenceAdapter(
     }
 
     override fun save(passProduct: PassProduct): PassProduct =
-        passProductJpaRepository.saveAndFlush(passProduct.toJpaEntity()).toDomain()
+        passProductJpaRepository.save(passProduct.toJpaEntity()).toDomain()
 }

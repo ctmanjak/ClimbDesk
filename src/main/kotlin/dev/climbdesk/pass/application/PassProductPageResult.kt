@@ -10,8 +10,10 @@ data class PassProductPageResult(
     val totalPages: Int,
 ) {
     companion object {
-        fun from(passProductPage: PassProductPage): PassProductPageResult =
-            PassProductPageResult(
+        fun from(passProductPage: PassProductPage): PassProductPageResult {
+            require(passProductPage.size > 0) { "PassProductPage size must be greater than 0." }
+
+            return PassProductPageResult(
                 items = passProductPage.items.map(PassProductResult::from),
                 page = passProductPage.page,
                 size = passProductPage.size,
@@ -22,5 +24,6 @@ data class PassProductPageResult(
                     ((passProductPage.totalElements - 1) / passProductPage.size + 1).toInt()
                 },
             )
+        }
     }
 }
