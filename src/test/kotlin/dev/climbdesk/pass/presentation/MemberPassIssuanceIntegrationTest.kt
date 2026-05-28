@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -69,7 +70,7 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
             price = BigDecimal("150000"),
             validDays = 90,
         )
-        val expiresAt = "2026-08-01T14:59:59Z"
+        val expiresAt = Instant.now().plus(1, ChronoUnit.DAYS).toString()
 
         val response = mockMvc.post("/api/v1/member-passes") {
             contentType = MediaType.APPLICATION_JSON
