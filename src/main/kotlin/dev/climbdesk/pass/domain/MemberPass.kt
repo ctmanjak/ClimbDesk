@@ -19,6 +19,8 @@ data class MemberPass(
     val issuedAt: Instant,
     val expiresAt: Instant?,
     val version: Long = 0,
+    val createdAt: Instant? = null,
+    val updatedAt: Instant? = null,
 ) {
     fun consume(reservationId: Long, now: Instant = Instant.now()): MemberPassUsageResult {
         if (status != MemberPassStatus.ACTIVE || remainingCount <= 0 || isExpiredAt(now)) {

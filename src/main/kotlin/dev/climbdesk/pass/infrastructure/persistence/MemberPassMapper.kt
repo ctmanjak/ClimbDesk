@@ -17,6 +17,8 @@ fun MemberPassJpaEntity.toDomain(): MemberPass =
         issuedAt = issuedAt,
         expiresAt = expiresAt,
         version = version,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
     )
 
 fun MemberPass.toJpaEntity(): MemberPassJpaEntity =
@@ -34,4 +36,6 @@ fun MemberPass.toJpaEntity(): MemberPassJpaEntity =
         issuedAt = issuedAt,
         expiresAt = expiresAt,
         version = version,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
     )

@@ -10,9 +10,13 @@ import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaRepository
 import dev.climbdesk.pass.domain.MemberPassStatus
+import dev.climbdesk.pass.domain.PassUsageHistoryReason
+import dev.climbdesk.pass.domain.PassUsageHistoryType
 import dev.climbdesk.pass.domain.PassProductType
 import dev.climbdesk.pass.infrastructure.persistence.MemberPassJpaEntity
 import dev.climbdesk.pass.infrastructure.persistence.MemberPassJpaRepository
+import dev.climbdesk.pass.infrastructure.persistence.PassUsageHistoryJpaEntity
+import dev.climbdesk.pass.infrastructure.persistence.PassUsageHistoryJpaRepository
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaEntity
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaRepository
 import org.assertj.core.api.Assertions.assertThat
@@ -31,6 +35,7 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.math.BigDecimal
+import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -52,6 +57,7 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
     private val memberJpaRepository: MemberJpaRepository,
     private val passProductJpaRepository: PassProductJpaRepository,
     private val memberPassJpaRepository: MemberPassJpaRepository,
+    private val passUsageHistoryJpaRepository: PassUsageHistoryJpaRepository,
     private val jdbcTemplate: JdbcTemplate,
 ) {
     @BeforeEach
@@ -65,6 +71,9 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
     }
 
     private fun clearData() {
+        passUsageHistoryJpaRepository.deleteAll()
+        jdbcTemplate.update("delete from reservations")
+        jdbcTemplate.update("delete from class_sessions")
         memberPassJpaRepository.deleteAll()
         passProductJpaRepository.deleteAll()
         memberJpaRepository.deleteAll()
@@ -327,6 +336,109 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(value = AdminUserRole::class, names = ["MANAGER", "STAFF"])
+    fun `manager and staff can list member pass usage histories`(role: AdminUserRole) {
+        val token = accessTokenFor("${role.name.lowercase()}-history@climbdesk.local", role)
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val otherMember = saveMember(status = MemberStatus.ACTIVE)
+        val passProduct = savePassProduct(name = "10 Count Pass", totalCount = 10)
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 8)
+        val otherMemberPass = saveMemberPass(member = otherMember, passProduct = passProduct, remainingCount = 9)
+        val reservationId = saveReservation(member.id, memberPass.id)
+        val otherReservationId = saveReservation(otherMember.id, otherMemberPass.id)
+        saveUsageHistory(
+            memberPassId = memberPass.id,
+            reservationId = reservationId,
+            createdAt = Instant.parse("2026-05-28T00:00:00Z"),
+            remainingCountAfter = 9,
+        )
+        val second = saveUsageHistory(
+            memberPassId = memberPass.id,
+            reservationId = reservationId,
+            createdAt = Instant.parse("2026-05-28T01:00:00Z"),
+            remainingCountAfter = 8,
+        )
+        saveUsageHistory(
+            memberPassId = otherMemberPass.id,
+            reservationId = otherReservationId,
+            createdAt = Instant.parse("2026-05-28T02:00:00Z"),
+            remainingCountAfter = 8,
+        )
+
+        mockMvc.get("/api/v1/member-passes/${memberPass.id}/usage-histories") {
+            param("page", "0")
+            param("size", "1")
+            header("Authorization", "Bearer $token")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.items.length()") { value(1) }
+            jsonPath("$.items[0].id") { value(second.id) }
+            jsonPath("$.items[0].memberPassId") { value(memberPass.id) }
+            jsonPath("$.items[0].reservationId") { value(reservationId) }
+            jsonPath("$.items[0].type") { value("CONSUME") }
+            jsonPath("$.items[0].reason") { value("RESERVATION_CONFIRMED") }
+            jsonPath("$.items[0].changedCount") { value(-1) }
+            jsonPath("$.items[0].remainingCountAfter") { value(8) }
+            jsonPath("$.items[0].createdAt") { value("2026-05-28T01:00:00Z") }
+            jsonPath("$.page") { value(0) }
+            jsonPath("$.size") { value(1) }
+            jsonPath("$.totalElements") { value(2) }
+            jsonPath("$.totalPages") { value(2) }
+        }
+    }
+
+    @Test
+    fun `member pass usage history list returns member pass not found for missing member pass`() {
+        val managerToken = accessTokenFor("manager-history-missing@climbdesk.local", AdminUserRole.MANAGER)
+
+        mockMvc.get("/api/v1/member-passes/9223372036854775807/usage-histories") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.code") { value("MEMBER_PASS_NOT_FOUND") }
+        }
+    }
+
+    @Test
+    fun `member pass usage history list requires jwt authorization`() {
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val passProduct = savePassProduct(name = "10 Count Pass", totalCount = 10)
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct)
+
+        mockMvc.get("/api/v1/member-passes/${memberPass.id}/usage-histories")
+            .andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.code") { value("UNAUTHORIZED") }
+            }
+    }
+
+    @Test
+    fun `member pass usage history list rejects invalid paging`() {
+        val managerToken = accessTokenFor("manager-history-paging@climbdesk.local", AdminUserRole.MANAGER)
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val passProduct = savePassProduct(name = "10 Count Pass", totalCount = 10)
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct)
+
+        mockMvc.get("/api/v1/member-passes/${memberPass.id}/usage-histories") {
+            param("page", "-1")
+            param("size", "20")
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.code") { value("VALIDATION_FAILED") }
+        }
+
+        mockMvc.get("/api/v1/member-passes/${memberPass.id}/usage-histories") {
+            param("page", "0")
+            param("size", "101")
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.code") { value("VALIDATION_FAILED") }
+        }
+    }
+
     private fun saveMember(
         status: MemberStatus,
         deactivatedAt: Instant? = null,
@@ -378,6 +490,62 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
                 status = status,
                 issuedAt = issuedAt,
                 expiresAt = expiresAt,
+            ),
+        )
+
+    private fun saveReservation(memberId: Long, memberPassId: Long): Long {
+        val now = Instant.parse("2026-05-28T00:00:00Z")
+        val startsAt = now.plus(1, ChronoUnit.DAYS)
+        val endsAt = startsAt.plus(1, ChronoUnit.HOURS)
+        val classSessionId = jdbcTemplate.queryForObject(
+            """
+            insert into class_sessions (
+              title, starts_at, ends_at, capacity, reserved_count, status, created_at, updated_at
+            )
+            values (?, ?, ?, 10, 1, 'OPEN', ?, ?)
+            returning id
+            """.trimIndent(),
+            Long::class.java,
+            "Morning Bouldering",
+            Timestamp.from(startsAt),
+            Timestamp.from(endsAt),
+            Timestamp.from(now),
+            Timestamp.from(now),
+        ) ?: error("class session id was not returned")
+
+        return jdbcTemplate.queryForObject(
+            """
+            insert into reservations (
+              member_id, class_session_id, member_pass_id, status, reserved_at, created_at, updated_at
+            )
+            values (?, ?, ?, 'CONFIRMED', ?, ?, ?)
+            returning id
+            """.trimIndent(),
+            Long::class.java,
+            memberId,
+            classSessionId,
+            memberPassId,
+            Timestamp.from(now),
+            Timestamp.from(now),
+            Timestamp.from(now),
+        ) ?: error("reservation id was not returned")
+    }
+
+    private fun saveUsageHistory(
+        memberPassId: Long,
+        reservationId: Long,
+        createdAt: Instant,
+        remainingCountAfter: Int,
+    ): PassUsageHistoryJpaEntity =
+        passUsageHistoryJpaRepository.saveAndFlush(
+            PassUsageHistoryJpaEntity(
+                memberPassId = memberPassId,
+                reservationId = reservationId,
+                type = PassUsageHistoryType.CONSUME,
+                reason = PassUsageHistoryReason.RESERVATION_CONFIRMED,
+                changedCount = -1,
+                remainingCountAfter = remainingCountAfter,
+                createdAt = createdAt,
             ),
         )
 

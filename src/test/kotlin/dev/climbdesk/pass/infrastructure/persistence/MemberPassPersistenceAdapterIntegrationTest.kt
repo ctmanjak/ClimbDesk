@@ -5,14 +5,20 @@ import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaRepository
 import dev.climbdesk.pass.domain.MemberPassRepository
 import dev.climbdesk.pass.domain.MemberPassStatus
+import dev.climbdesk.pass.domain.PassUsageHistoryReason
+import dev.climbdesk.pass.domain.PassUsageHistoryType
 import dev.climbdesk.pass.domain.PassProductType
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.jdbc.core.JdbcTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -30,7 +36,9 @@ class MemberPassPersistenceAdapterIntegrationTest @Autowired constructor(
     private val memberJpaRepository: MemberJpaRepository,
     private val passProductJpaRepository: PassProductJpaRepository,
     private val memberPassJpaRepository: MemberPassJpaRepository,
+    private val passUsageHistoryJpaRepository: PassUsageHistoryJpaRepository,
     private val memberPassRepository: MemberPassRepository,
+    private val jdbcTemplate: JdbcTemplate,
 ) {
     @BeforeEach
     fun setUp() {
@@ -43,6 +51,9 @@ class MemberPassPersistenceAdapterIntegrationTest @Autowired constructor(
     }
 
     private fun clearData() {
+        passUsageHistoryJpaRepository.deleteAll()
+        jdbcTemplate.update("delete from reservations")
+        jdbcTemplate.update("delete from class_sessions")
         memberPassJpaRepository.deleteAll()
         passProductJpaRepository.deleteAll()
         memberJpaRepository.deleteAll()
@@ -75,6 +86,76 @@ class MemberPassPersistenceAdapterIntegrationTest @Autowired constructor(
         val actual = memberPassRepository.findAvailablePassForUse(member.id, now)
 
         assertThat(actual?.id).isEqualTo(selected.id)
+    }
+
+    @Test
+    fun `usage result save persists consume history with member pass state change`() {
+        val now = Instant.parse("2026-05-28T00:00:00Z")
+        val member = saveMember()
+        val passProduct = savePassProduct()
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 10)
+        val reservationId = saveReservation(member.id, memberPass.id)
+
+        val saved = memberPassRepository.saveUsageResult(
+            memberPass.toDomain().consume(reservationId = reservationId, now = now),
+        )
+
+        val updatedMemberPass = memberPassJpaRepository.findById(memberPass.id).orElseThrow()
+        val savedHistory = passUsageHistoryJpaRepository.findAll().single()
+        assertThat(updatedMemberPass.remainingCount).isEqualTo(9)
+        assertThat(saved.usageHistory.id).isEqualTo(savedHistory.id)
+        assertThat(savedHistory.memberPassId).isEqualTo(memberPass.id)
+        assertThat(savedHistory.reservationId).isEqualTo(reservationId)
+        assertThat(savedHistory.type).isEqualTo(PassUsageHistoryType.CONSUME)
+        assertThat(savedHistory.reason).isEqualTo(PassUsageHistoryReason.RESERVATION_CONFIRMED)
+        assertThat(savedHistory.changedCount).isEqualTo(-1)
+        assertThat(savedHistory.remainingCountAfter).isEqualTo(9)
+        assertThat(savedHistory.createdAt).isNotNull()
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PassUsageHistoryReason::class, names = ["RESERVATION_CANCELED", "CLASS_SESSION_CANCELED"])
+    fun `usage result save persists restore history with member pass state change`(reason: PassUsageHistoryReason) {
+        val now = Instant.parse("2026-05-28T00:00:00Z")
+        val member = saveMember()
+        val passProduct = savePassProduct()
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 9)
+        val reservationId = saveReservation(member.id, memberPass.id)
+
+        memberPassRepository.saveUsageResult(
+            memberPass.toDomain().restore(
+                reservationId = reservationId,
+                reason = reason,
+                now = now,
+            ),
+        )
+
+        val updatedMemberPass = memberPassJpaRepository.findById(memberPass.id).orElseThrow()
+        val savedHistory = passUsageHistoryJpaRepository.findAll().single()
+        assertThat(updatedMemberPass.remainingCount).isEqualTo(10)
+        assertThat(savedHistory.type).isEqualTo(PassUsageHistoryType.RESTORE)
+        assertThat(savedHistory.reason).isEqualTo(reason)
+        assertThat(savedHistory.changedCount).isEqualTo(1)
+        assertThat(savedHistory.remainingCountAfter).isEqualTo(10)
+    }
+
+    @Test
+    fun `usage history lookup is paged and ordered by created at and id descending`() {
+        val createdAt = Instant.parse("2026-05-28T00:00:00Z")
+        val member = saveMember()
+        val passProduct = savePassProduct()
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 7)
+        val reservationId = saveReservation(member.id, memberPass.id)
+        saveUsageHistory(memberPass.id, reservationId, createdAt.minusSeconds(60), remainingCountAfter = 9)
+        val second = saveUsageHistory(memberPass.id, reservationId, createdAt, remainingCountAfter = 8)
+        val third = saveUsageHistory(memberPass.id, reservationId, createdAt, remainingCountAfter = 7)
+
+        val actual = memberPassRepository.findUsageHistoryPageByMemberPassId(memberPass.id, page = 0, size = 2)
+
+        assertThat(actual.items.map { it.id }).containsExactly(third.id, second.id)
+        assertThat(actual.totalElements).isEqualTo(3)
+        assertThat(actual.page).isZero()
+        assertThat(actual.size).isEqualTo(2)
     }
 
     @Test
@@ -160,6 +241,62 @@ class MemberPassPersistenceAdapterIntegrationTest @Autowired constructor(
                 status = status,
                 issuedAt = issuedAt,
                 expiresAt = expiresAt,
+            ),
+        )
+
+    private fun saveReservation(memberId: Long, memberPassId: Long): Long {
+        val now = Instant.parse("2026-05-28T00:00:00Z")
+        val startsAt = now.plus(1, ChronoUnit.DAYS)
+        val endsAt = startsAt.plus(1, ChronoUnit.HOURS)
+        val classSessionId = jdbcTemplate.queryForObject(
+            """
+            insert into class_sessions (
+              title, starts_at, ends_at, capacity, reserved_count, status, created_at, updated_at
+            )
+            values (?, ?, ?, 10, 1, 'OPEN', ?, ?)
+            returning id
+            """.trimIndent(),
+            Long::class.java,
+            "Morning Bouldering",
+            Timestamp.from(startsAt),
+            Timestamp.from(endsAt),
+            Timestamp.from(now),
+            Timestamp.from(now),
+        ) ?: error("class session id was not returned")
+
+        return jdbcTemplate.queryForObject(
+            """
+            insert into reservations (
+              member_id, class_session_id, member_pass_id, status, reserved_at, created_at, updated_at
+            )
+            values (?, ?, ?, 'CONFIRMED', ?, ?, ?)
+            returning id
+            """.trimIndent(),
+            Long::class.java,
+            memberId,
+            classSessionId,
+            memberPassId,
+            Timestamp.from(now),
+            Timestamp.from(now),
+            Timestamp.from(now),
+        ) ?: error("reservation id was not returned")
+    }
+
+    private fun saveUsageHistory(
+        memberPassId: Long,
+        reservationId: Long,
+        createdAt: Instant,
+        remainingCountAfter: Int,
+    ): PassUsageHistoryJpaEntity =
+        passUsageHistoryJpaRepository.saveAndFlush(
+            PassUsageHistoryJpaEntity(
+                memberPassId = memberPassId,
+                reservationId = reservationId,
+                type = PassUsageHistoryType.CONSUME,
+                reason = PassUsageHistoryReason.RESERVATION_CONFIRMED,
+                changedCount = -1,
+                remainingCountAfter = remainingCountAfter,
+                createdAt = createdAt,
             ),
         )
 }

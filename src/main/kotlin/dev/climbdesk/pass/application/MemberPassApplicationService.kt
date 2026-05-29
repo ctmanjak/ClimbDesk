@@ -47,4 +47,21 @@ class MemberPassApplicationService(
 
         return MemberPassPageResult.from(memberPassRepository.findPageByMemberId(memberId, page, size))
     }
+
+    @Transactional(readOnly = true)
+    fun listUsageHistories(memberPassId: Long, page: Int, size: Int): PassUsageHistoryPageResult {
+        if (page < 0) {
+            throw ApplicationException(ErrorCode.VALIDATION_FAILED, "page must be greater than or equal to 0.")
+        }
+        if (size !in 1..MAX_MEMBER_PASS_PAGE_SIZE) {
+            throw ApplicationException(ErrorCode.VALIDATION_FAILED, "size must be between 1 and $MAX_MEMBER_PASS_PAGE_SIZE.")
+        }
+        if (!memberPassRepository.existsById(memberPassId)) {
+            throw ApplicationException(ErrorCode.MEMBER_PASS_NOT_FOUND)
+        }
+
+        return PassUsageHistoryPageResult.from(
+            memberPassRepository.findUsageHistoryPageByMemberPassId(memberPassId, page, size),
+        )
+    }
 }
