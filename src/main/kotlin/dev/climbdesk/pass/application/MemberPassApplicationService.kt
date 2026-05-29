@@ -32,4 +32,19 @@ class MemberPassApplicationService(
 
         return MemberPassResult.from(memberPassRepository.save(memberPass))
     }
+
+    @Transactional(readOnly = true)
+    fun listMemberPasses(memberId: Long, page: Int, size: Int): MemberPassPageResult {
+        if (page < 0) {
+            throw ApplicationException(ErrorCode.VALIDATION_FAILED, "page must be greater than or equal to 0.")
+        }
+        if (size !in 1..MAX_MEMBER_PASS_PAGE_SIZE) {
+            throw ApplicationException(ErrorCode.VALIDATION_FAILED, "size must be between 1 and $MAX_MEMBER_PASS_PAGE_SIZE.")
+        }
+        if (memberRepository.findById(memberId) == null) {
+            throw ApplicationException(ErrorCode.MEMBER_NOT_FOUND)
+        }
+
+        return MemberPassPageResult.from(memberPassRepository.findPageByMemberId(memberId, page, size))
+    }
 }
