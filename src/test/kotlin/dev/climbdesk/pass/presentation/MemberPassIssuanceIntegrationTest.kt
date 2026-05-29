@@ -11,10 +11,12 @@ import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaRepository
 import dev.climbdesk.pass.domain.MemberPassStatus
 import dev.climbdesk.pass.domain.PassProductType
+import dev.climbdesk.pass.infrastructure.persistence.MemberPassJpaEntity
 import dev.climbdesk.pass.infrastructure.persistence.MemberPassJpaRepository
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaEntity
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -25,6 +27,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.math.BigDecimal
@@ -53,6 +56,15 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
 ) {
     @BeforeEach
     fun setUp() {
+        clearData()
+    }
+
+    @AfterEach
+    fun tearDown() {
+        clearData()
+    }
+
+    private fun clearData() {
         memberPassJpaRepository.deleteAll()
         passProductJpaRepository.deleteAll()
         memberJpaRepository.deleteAll()
@@ -238,6 +250,83 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(value = AdminUserRole::class, names = ["MANAGER", "STAFF"])
+    fun `manager and staff can list member passes`(role: AdminUserRole) {
+        val token = accessTokenFor("${role.name.lowercase()}-query@climbdesk.local", role)
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val otherMember = saveMember(status = MemberStatus.ACTIVE)
+        val passProduct = savePassProduct(name = "10 Count Pass", totalCount = 10)
+        saveMemberPass(member = member, passProduct = passProduct, remainingCount = 8)
+        val second = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 9)
+        val third = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 10)
+        saveMemberPass(member = otherMember, passProduct = passProduct, remainingCount = 7)
+
+        mockMvc.get("/api/v1/members/${member.id}/passes") {
+            param("page", "0")
+            param("size", "2")
+            header("Authorization", "Bearer $token")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.items.length()") { value(2) }
+            jsonPath("$.items[0].id") { value(third.id) }
+            jsonPath("$.items[0].memberId") { value(member.id) }
+            jsonPath("$.items[0].remainingCount") { value(10) }
+            jsonPath("$.items[1].id") { value(second.id) }
+            jsonPath("$.page") { value(0) }
+            jsonPath("$.size") { value(2) }
+            jsonPath("$.totalElements") { value(3) }
+            jsonPath("$.totalPages") { value(2) }
+        }
+    }
+
+    @Test
+    fun `member pass list returns member not found for missing member`() {
+        val managerToken = accessTokenFor("manager-query@climbdesk.local", AdminUserRole.MANAGER)
+
+        mockMvc.get("/api/v1/members/9223372036854775807/passes") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isNotFound() }
+            jsonPath("$.code") { value("MEMBER_NOT_FOUND") }
+        }
+    }
+
+    @Test
+    fun `member pass list requires jwt authorization`() {
+        val member = saveMember(status = MemberStatus.ACTIVE)
+
+        mockMvc.get("/api/v1/members/${member.id}/passes")
+            .andExpect {
+                status { isUnauthorized() }
+                jsonPath("$.code") { value("UNAUTHORIZED") }
+            }
+    }
+
+    @Test
+    fun `member pass list rejects invalid paging`() {
+        val managerToken = accessTokenFor("manager-query-paging@climbdesk.local", AdminUserRole.MANAGER)
+        val member = saveMember(status = MemberStatus.ACTIVE)
+
+        mockMvc.get("/api/v1/members/${member.id}/passes") {
+            param("page", "-1")
+            param("size", "20")
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.code") { value("VALIDATION_FAILED") }
+        }
+
+        mockMvc.get("/api/v1/members/${member.id}/passes") {
+            param("page", "0")
+            param("size", "101")
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isBadRequest() }
+            jsonPath("$.code") { value("VALIDATION_FAILED") }
+        }
+    }
+
     private fun saveMember(
         status: MemberStatus,
         deactivatedAt: Instant? = null,
@@ -265,6 +354,30 @@ class MemberPassIssuanceIntegrationTest @Autowired constructor(
                 totalCount = totalCount,
                 price = price,
                 validDays = validDays,
+            ),
+        )
+
+    private fun saveMemberPass(
+        member: MemberJpaEntity,
+        passProduct: PassProductJpaEntity,
+        status: MemberPassStatus = MemberPassStatus.ACTIVE,
+        remainingCount: Int = passProduct.totalCount,
+        issuedAt: Instant = Instant.now(),
+        expiresAt: Instant? = issuedAt.plus(90, ChronoUnit.DAYS),
+    ) =
+        memberPassJpaRepository.saveAndFlush(
+            MemberPassJpaEntity(
+                memberId = member.id,
+                passProductId = passProduct.id,
+                productNameSnapshot = passProduct.name,
+                passTypeSnapshot = passProduct.type,
+                totalCount = passProduct.totalCount,
+                remainingCount = remainingCount,
+                priceSnapshot = passProduct.price,
+                validDaysSnapshot = passProduct.validDays,
+                status = status,
+                issuedAt = issuedAt,
+                expiresAt = expiresAt,
             ),
         )
 

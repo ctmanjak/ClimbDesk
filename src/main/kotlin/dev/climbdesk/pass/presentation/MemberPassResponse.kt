@@ -1,5 +1,6 @@
 package dev.climbdesk.pass.presentation
 
+import dev.climbdesk.pass.application.MemberPassPageResult
 import dev.climbdesk.pass.application.MemberPassResult
 import dev.climbdesk.pass.domain.MemberPassStatus
 import java.time.Instant
@@ -16,6 +17,14 @@ data class MemberPassResponse(
     val expiresAt: Instant?,
 )
 
+data class MemberPassListResponse(
+    val items: List<MemberPassResponse>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+)
+
 fun MemberPassResult.toResponse(): MemberPassResponse =
     MemberPassResponse(
         id = id,
@@ -27,4 +36,13 @@ fun MemberPassResult.toResponse(): MemberPassResponse =
         status = status,
         issuedAt = issuedAt,
         expiresAt = expiresAt,
+    )
+
+fun MemberPassPageResult.toResponse(): MemberPassListResponse =
+    MemberPassListResponse(
+        items = items.map { it.toResponse() },
+        page = page,
+        size = size,
+        totalElements = totalElements,
+        totalPages = totalPages,
     )
