@@ -17,6 +17,48 @@ data class ClassSession(
     val cancelReason: String? = null,
     val affectedReservationCount: Int = 0,
 ) {
+    fun reserveSeat(): ClassSession {
+        if (status != ClassSessionStatus.OPEN) {
+            throw DomainException(ErrorCode.CLASS_SESSION_NOT_OPEN)
+        }
+        if (reservedCount >= capacity) {
+            throw DomainException(ErrorCode.CLASS_SESSION_FULL)
+        }
+
+        return copy(reservedCount = reservedCount + 1)
+    }
+
+    fun cancelSeat(): ClassSession {
+        if (reservedCount <= 0) {
+            throw DomainException(ErrorCode.VALIDATION_FAILED, "reservedCount must be greater than 0.")
+        }
+
+        return copy(reservedCount = reservedCount - 1)
+    }
+
+    fun cancel(
+        reason: String,
+        canceledAt: Instant = Instant.now(),
+    ): ClassSession {
+        if (status == ClassSessionStatus.CANCELED) {
+            throw DomainException(ErrorCode.CLASS_SESSION_ALREADY_CANCELED)
+        }
+        if (reason.isBlank()) {
+            throw DomainException(ErrorCode.VALIDATION_FAILED, "reason must not be blank.")
+        }
+        if (reason.length > 500) {
+            throw DomainException(ErrorCode.VALIDATION_FAILED, "reason must be less than or equal to 500 characters.")
+        }
+
+        return copy(
+            reservedCount = 0,
+            status = ClassSessionStatus.CANCELED,
+            canceledAt = canceledAt,
+            cancelReason = reason,
+            affectedReservationCount = reservedCount,
+        )
+    }
+
     companion object {
         fun create(
             title: String,

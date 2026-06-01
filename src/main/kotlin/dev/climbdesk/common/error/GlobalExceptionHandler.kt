@@ -3,6 +3,7 @@ package dev.climbdesk.common.error
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.ConstraintViolationException
 import org.slf4j.MDC
+import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.security.access.AccessDeniedException
@@ -96,6 +97,18 @@ class GlobalExceptionHandler {
             status = HttpStatus.FORBIDDEN,
             errorCode = ErrorCode.FORBIDDEN,
             message = ErrorCode.FORBIDDEN.defaultMessage,
+            request = request,
+        )
+
+    @ExceptionHandler(PessimisticLockingFailureException::class)
+    fun handlePessimisticLockingFailure(
+        exception: PessimisticLockingFailureException,
+        request: HttpServletRequest,
+    ): ResponseEntity<ErrorResponse> =
+        errorResponse(
+            status = HttpStatus.CONFLICT,
+            errorCode = ErrorCode.CONCURRENCY_CONFLICT,
+            message = ErrorCode.CONCURRENCY_CONFLICT.defaultMessage,
             request = request,
         )
 
