@@ -76,20 +76,44 @@ class MemberQueryIntegrationTest @Autowired constructor(
     @Test
     fun `member list uses default paging and latest first ordering`() {
         val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
-        val first = saveMember(name = "First Member", phone = "010-0000-0001")
-        val second = saveMember(name = "Second Member", phone = "010-0000-0002")
+        val newer = saveMember(
+            name = "Newer Member",
+            phone = "010-0000-0001",
+            createdAt = Instant.parse("2026-05-02T01:00:00Z"),
+        )
+        val older = saveMember(
+            name = "Older Member",
+            phone = "010-0000-0002",
+            createdAt = Instant.parse("2026-05-01T01:00:00Z"),
+        )
 
         mockMvc.get("/api/v1/members") {
             header("Authorization", "Bearer $managerToken")
         }.andExpect {
             status { isOk() }
             jsonPath("$.items.length()") { value(2) }
-            jsonPath("$.items[0].id") { value(second.id) }
-            jsonPath("$.items[1].id") { value(first.id) }
+            jsonPath("$.items[0].id") { value(newer.id) }
+            jsonPath("$.items[1].id") { value(older.id) }
             jsonPath("$.page") { value(0) }
             jsonPath("$.size") { value(20) }
             jsonPath("$.totalElements") { value(2) }
             jsonPath("$.totalPages") { value(1) }
+        }
+    }
+
+    @Test
+    fun `member list uses descending id as tie breaker for equal created at`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val createdAt = Instant.parse("2026-05-01T01:00:00Z")
+        val first = saveMember(name = "First Member", phone = "010-0000-0001", createdAt = createdAt)
+        val second = saveMember(name = "Second Member", phone = "010-0000-0002", createdAt = createdAt)
+
+        mockMvc.get("/api/v1/members") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.items[0].id") { value(second.id) }
+            jsonPath("$.items[1].id") { value(first.id) }
         }
     }
 
@@ -244,8 +268,9 @@ class MemberQueryIntegrationTest @Autowired constructor(
         email: String? = null,
         status: MemberStatus = MemberStatus.ACTIVE,
         deactivatedAt: Instant? = null,
-    ): MemberJpaEntity =
-        memberJpaRepository.saveAndFlush(
+        createdAt: Instant? = null,
+    ): MemberJpaEntity {
+        val member = memberJpaRepository.saveAndFlush(
             MemberJpaEntity(
                 name = name,
                 phone = phone,
@@ -254,6 +279,12 @@ class MemberQueryIntegrationTest @Autowired constructor(
                 deactivatedAt = deactivatedAt,
             ),
         )
+        if (createdAt != null) {
+            member.createdAt = createdAt
+            return memberJpaRepository.saveAndFlush(member)
+        }
+        return member
+    }
 
     private fun accessTokenFor(email: String, role: AdminUserRole): String {
         adminUserJpaRepository.saveAndFlush(

@@ -6,5 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository
 
 interface MemberJpaRepository : JpaRepository<MemberJpaEntity, Long> {
     fun existsByPhone(phone: String): Boolean
-    fun findAllByOrderByIdDesc(pageable: Pageable): Page<MemberJpaEntity>
+    fun findAllByOrderByCreatedAtDescIdDesc(pageable: Pageable): Page<MemberJpaEntity>
 }

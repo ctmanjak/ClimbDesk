@@ -24,7 +24,7 @@ class MemberPersistenceAdapter(
             .orElse(null)
 
     override fun findPage(page: Int, size: Int): MemberPage {
-        val memberPage = memberJpaRepository.findAllByOrderByIdDesc(PageRequest.of(page, size))
+        val memberPage = memberJpaRepository.findAllByOrderByCreatedAtDescIdDesc(PageRequest.of(page, size))
         return MemberPage(
             items = memberPage.content.map(MemberJpaEntity::toDomain),
             page = memberPage.number,
