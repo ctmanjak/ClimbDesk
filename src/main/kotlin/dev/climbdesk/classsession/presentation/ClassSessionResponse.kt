@@ -1,5 +1,6 @@
 package dev.climbdesk.classsession.presentation
 
+import dev.climbdesk.classsession.application.ClassSessionPageResult
 import dev.climbdesk.classsession.application.ClassSessionResult
 import dev.climbdesk.classsession.domain.ClassSessionStatus
 import java.time.Instant
@@ -17,6 +18,14 @@ data class ClassSessionResponse(
     val affectedReservationCount: Int,
 )
 
+data class ClassSessionListResponse(
+    val items: List<ClassSessionResponse>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+)
+
 fun ClassSessionResult.toResponse(): ClassSessionResponse =
     ClassSessionResponse(
         id = id,
@@ -29,4 +38,13 @@ fun ClassSessionResult.toResponse(): ClassSessionResponse =
         createdAt = createdAt,
         canceledAt = canceledAt,
         affectedReservationCount = affectedReservationCount,
+    )
+
+fun ClassSessionPageResult.toResponse(): ClassSessionListResponse =
+    ClassSessionListResponse(
+        items = items.map { it.toResponse() },
+        page = page,
+        size = size,
+        totalElements = totalElements,
+        totalPages = totalPages,
     )
