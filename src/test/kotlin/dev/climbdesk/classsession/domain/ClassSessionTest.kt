@@ -115,6 +115,25 @@ class ClassSessionTest {
         assertThat(canceled.status).isEqualTo(ClassSessionStatus.CANCELED)
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["", "   "])
+    fun `class session rejects blank cancellation reason`(reason: String) {
+        assertThatThrownBy {
+            classSession().cancel(reason)
+        }.isInstanceOf(DomainException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+    }
+
+    @Test
+    fun `class session rejects cancellation reason over maximum length`() {
+        assertThatThrownBy {
+            classSession().cancel("a".repeat(501))
+        }.isInstanceOf(DomainException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+    }
+
     @Test
     fun `canceled class session cannot reserve seat`() {
         val canceled = classSession().cancel("Operational issue")
