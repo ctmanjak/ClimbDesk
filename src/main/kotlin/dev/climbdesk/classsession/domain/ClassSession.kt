@@ -24,6 +24,12 @@ data class ClassSession(
             endsAt: Instant,
             capacity: Int,
         ): ClassSession {
+            if (title.isBlank()) {
+                throw DomainException(ErrorCode.VALIDATION_FAILED, "title must not be blank.")
+            }
+            if (title.length > 150) {
+                throw DomainException(ErrorCode.VALIDATION_FAILED, "title must be less than or equal to 150 characters.")
+            }
             if (capacity < 1) {
                 throw DomainException(ErrorCode.VALIDATION_FAILED, "capacity must be greater than or equal to 1.")
             }

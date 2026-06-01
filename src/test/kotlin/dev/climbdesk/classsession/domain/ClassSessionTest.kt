@@ -25,6 +25,35 @@ class ClassSessionTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["", " "])
+    fun `class session rejects blank title`(title: String) {
+        assertThatThrownBy {
+            ClassSession.create(
+                title = title,
+                startsAt = Instant.parse("2026-05-10T10:00:00Z"),
+                endsAt = Instant.parse("2026-05-10T11:00:00Z"),
+                capacity = 12,
+            )
+        }.isInstanceOf(DomainException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+    }
+
+    @Test
+    fun `class session rejects title over maximum length`() {
+        assertThatThrownBy {
+            ClassSession.create(
+                title = "a".repeat(151),
+                startsAt = Instant.parse("2026-05-10T10:00:00Z"),
+                endsAt = Instant.parse("2026-05-10T11:00:00Z"),
+                capacity = 12,
+            )
+        }.isInstanceOf(DomainException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+    }
+
+    @ParameterizedTest
     @ValueSource(ints = [0, -1])
     fun `class session rejects non-positive capacity`(capacity: Int) {
         assertThatThrownBy {
