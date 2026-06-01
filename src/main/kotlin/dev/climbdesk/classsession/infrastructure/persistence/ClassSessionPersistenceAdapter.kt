@@ -15,6 +15,9 @@ class ClassSessionPersistenceAdapter(
             .map(ClassSessionJpaEntity::toDomain)
             .orElse(null)
 
+    override fun findByIdForUpdate(classSessionId: Long): ClassSession? =
+        classSessionJpaRepository.findByIdForUpdate(classSessionId)?.toDomain()
+
     override fun findPage(page: Int, size: Int): ClassSessionPage {
         val classSessionPage =
             classSessionJpaRepository.findAllByOrderByStartsAtDescIdDesc(PageRequest.of(page, size))

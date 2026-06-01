@@ -43,4 +43,14 @@ class ClassSessionApplicationService(
         classSessionRepository.findById(classSessionId)
             ?.let(ClassSessionResult::from)
             ?: throw ApplicationException(ErrorCode.CLASS_SESSION_NOT_FOUND)
+
+    @Transactional
+    fun cancelClassSession(command: CancelClassSessionCommand): ClassSessionResult {
+        val classSession = classSessionRepository.findByIdForUpdate(command.classSessionId)
+            ?: throw ApplicationException(ErrorCode.CLASS_SESSION_NOT_FOUND)
+
+        return ClassSessionResult.from(
+            classSessionRepository.save(classSession.cancel(command.reason)),
+        )
+    }
 }

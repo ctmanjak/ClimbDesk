@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest
 import org.springframework.context.annotation.Import
+import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.MediaType
 import org.springframework.test.context.junit.jupiter.SpringExtension
 import org.springframework.test.web.servlet.MockMvc
@@ -91,6 +92,16 @@ class GlobalExceptionHandlerTest @Autowired constructor(
             jsonPath("$.details") { doesNotExist() }
         }
     }
+
+    @Test
+    fun `pessimistic lock failure returns concurrency conflict`() {
+        mockMvc.get("/test-errors/pessimistic-lock").andExpect {
+            status { isConflict() }
+            jsonPath("$.status") { value(409) }
+            jsonPath("$.code") { value("CONCURRENCY_CONFLICT") }
+            jsonPath("$.message") { value("Request could not be completed due to a concurrency conflict.") }
+        }
+    }
 }
 
 @RestController
@@ -112,6 +123,10 @@ private class ErrorHandlingTestController {
     @GetMapping("/unexpected")
     fun unexpected(): Nothing =
         throw IllegalStateException("database password leaked")
+
+    @GetMapping("/pessimistic-lock")
+    fun pessimisticLock(): Nothing =
+        throw PessimisticLockingFailureException("lock timeout")
 }
 
 private data class ValidationTestRequest(
