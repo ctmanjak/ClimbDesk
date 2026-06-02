@@ -1,4 +1,4 @@
-package dev.climbdesk.eventoutbox.domain
+package dev.climbdesk.event.domain
 
 import java.time.Instant
 

@@ -1,6 +1,6 @@
-package dev.climbdesk.eventoutbox.infrastructure.persistence
+package dev.climbdesk.event.infrastructure.persistence
 
-import dev.climbdesk.eventoutbox.domain.OutboxEventStatus
+import dev.climbdesk.event.domain.OutboxEventStatus
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType

@@ -1,4 +1,4 @@
-package dev.climbdesk.eventoutbox.infrastructure.persistence
+package dev.climbdesk.event.infrastructure.persistence
 
 import org.springframework.data.jpa.repository.JpaRepository
 

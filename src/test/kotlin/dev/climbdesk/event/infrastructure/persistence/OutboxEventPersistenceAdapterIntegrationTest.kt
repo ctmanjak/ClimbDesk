@@ -1,8 +1,8 @@
-package dev.climbdesk.eventoutbox.infrastructure.persistence
+package dev.climbdesk.event.infrastructure.persistence
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.climbdesk.eventoutbox.application.OutboxEventRecorder
-import dev.climbdesk.eventoutbox.domain.OutboxEventStatus
+import dev.climbdesk.event.application.OutboxEventRecorder
+import dev.climbdesk.event.domain.OutboxEventStatus
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -60,6 +60,8 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
         assertThat(persisted.status).isEqualTo(OutboxEventStatus.PENDING)
         assertThat(persisted.retryCount).isZero()
         assertThat(persisted.occurredAt).isEqualTo(occurredAt)
+        assertThat(persisted.publishedAt).isNull()
+        assertThat(persisted.nextRetryAt).isNull()
         assertThat(persisted.createdAt).isNotNull()
         assertThat(persisted.updatedAt).isNotNull()
         assertThat(payload["reservationId"].longValue()).isEqualTo(101L)

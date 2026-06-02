@@ -1,4 +1,4 @@
-package dev.climbdesk.eventoutbox.infrastructure.persistence
+package dev.climbdesk.event.infrastructure.persistence
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent

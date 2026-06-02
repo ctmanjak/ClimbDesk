@@ -1,8 +1,8 @@
-package dev.climbdesk.eventoutbox.infrastructure.persistence
+package dev.climbdesk.event.infrastructure.persistence
 
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.climbdesk.eventoutbox.application.OutboxEventRecorder
-import dev.climbdesk.eventoutbox.domain.OutboxEvent
+import dev.climbdesk.event.application.OutboxEventRecorder
+import dev.climbdesk.event.domain.OutboxEvent
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Propagation

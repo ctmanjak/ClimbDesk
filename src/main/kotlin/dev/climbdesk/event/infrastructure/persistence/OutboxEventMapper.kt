@@ -1,6 +1,6 @@
-package dev.climbdesk.eventoutbox.infrastructure.persistence
+package dev.climbdesk.event.infrastructure.persistence
 
-import dev.climbdesk.eventoutbox.domain.OutboxEvent
+import dev.climbdesk.event.domain.OutboxEvent
 
 fun OutboxEventJpaEntity.toDomain(): OutboxEvent =
     OutboxEvent(
