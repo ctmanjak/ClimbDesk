@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.math.BigDecimal
+import java.time.Instant
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -176,20 +177,44 @@ class PassProductIntegrationTest @Autowired constructor(
     @Test
     fun `pass product list uses default paging and latest first ordering`() {
         val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
-        val first = savePassProduct(name = "First Pass", totalCount = 5)
-        val second = savePassProduct(name = "Second Pass", totalCount = 10)
+        val newer = savePassProduct(
+            name = "Newer Pass",
+            totalCount = 5,
+            createdAt = Instant.parse("2026-05-02T01:00:00Z"),
+        )
+        val older = savePassProduct(
+            name = "Older Pass",
+            totalCount = 10,
+            createdAt = Instant.parse("2026-05-01T01:00:00Z"),
+        )
 
         mockMvc.get("/api/v1/pass-products") {
             header("Authorization", "Bearer $managerToken")
         }.andExpect {
             status { isOk() }
             jsonPath("$.items.length()") { value(2) }
-            jsonPath("$.items[0].id") { value(second.id) }
-            jsonPath("$.items[1].id") { value(first.id) }
+            jsonPath("$.items[0].id") { value(newer.id) }
+            jsonPath("$.items[1].id") { value(older.id) }
             jsonPath("$.page") { value(0) }
             jsonPath("$.size") { value(20) }
             jsonPath("$.totalElements") { value(2) }
             jsonPath("$.totalPages") { value(1) }
+        }
+    }
+
+    @Test
+    fun `pass product list uses descending id as tie breaker for equal created at`() {
+        val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
+        val createdAt = Instant.parse("2026-05-01T01:00:00Z")
+        val first = savePassProduct(name = "First Pass", totalCount = 5, createdAt = createdAt)
+        val second = savePassProduct(name = "Second Pass", totalCount = 10, createdAt = createdAt)
+
+        mockMvc.get("/api/v1/pass-products") {
+            header("Authorization", "Bearer $managerToken")
+        }.andExpect {
+            status { isOk() }
+            jsonPath("$.items[0].id") { value(second.id) }
+            jsonPath("$.items[1].id") { value(first.id) }
         }
     }
 
@@ -310,16 +335,20 @@ class PassProductIntegrationTest @Autowired constructor(
         totalCount: Int,
         price: BigDecimal? = null,
         validDays: Int? = null,
-    ): PassProductJpaEntity =
-        passProductJpaRepository.saveAndFlush(
+        createdAt: Instant? = null,
+    ): PassProductJpaEntity {
+        val passProduct = passProductJpaRepository.saveAndFlush(
             PassProductJpaEntity(
                 name = name,
                 type = PassProductType.COUNT_PASS,
                 totalCount = totalCount,
                 price = price,
                 validDays = validDays,
+                createdAt = createdAt,
             ),
         )
+        return passProduct
+    }
 
     private fun accessTokenFor(email: String, role: AdminUserRole): String {
         adminUserJpaRepository.saveAndFlush(

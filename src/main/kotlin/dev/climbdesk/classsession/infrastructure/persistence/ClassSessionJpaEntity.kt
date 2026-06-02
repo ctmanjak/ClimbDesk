@@ -57,7 +57,7 @@ class ClassSessionJpaEntity(
     @PrePersist
     fun prePersist() {
         val now = Instant.now()
-        createdAt = now
+        createdAt = createdAt ?: now
         updatedAt = now
     }
 
