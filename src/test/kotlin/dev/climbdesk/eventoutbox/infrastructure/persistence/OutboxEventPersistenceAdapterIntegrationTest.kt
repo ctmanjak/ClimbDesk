@@ -5,12 +5,14 @@ import dev.climbdesk.eventoutbox.application.OutboxEventRecorder
 import dev.climbdesk.eventoutbox.domain.OutboxEventStatus
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.transaction.IllegalTransactionStateException
 import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.time.Instant
@@ -46,7 +48,9 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
     fun `record persists pending reservation confirmed event with jsonb payload`() {
         val occurredAt = Instant.parse("2026-06-02T00:00:00Z")
 
-        val saved = outboxEventRecorder.record(reservationConfirmedEvent(occurredAt))
+        val saved = transactionTemplate.execute {
+            outboxEventRecorder.record(reservationConfirmedEvent(occurredAt))
+        } ?: error("outbox event was not returned")
 
         val persisted = outboxEventJpaRepository.findById(saved.id).orElseThrow()
         val payload = objectMapper.readTree(persisted.payload)
@@ -78,6 +82,15 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
             outboxEventRecorder.record(reservationConfirmedEvent())
             transactionStatus.setRollbackOnly()
         }
+
+        assertThat(outboxEventJpaRepository.count()).isZero()
+    }
+
+    @Test
+    fun `record without caller transaction fails`() {
+        assertThatThrownBy {
+            outboxEventRecorder.record(reservationConfirmedEvent())
+        }.isInstanceOf(IllegalTransactionStateException::class.java)
 
         assertThat(outboxEventJpaRepository.count()).isZero()
     }

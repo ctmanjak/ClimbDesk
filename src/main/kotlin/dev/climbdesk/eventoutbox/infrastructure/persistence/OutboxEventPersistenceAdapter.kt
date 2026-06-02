@@ -5,12 +5,15 @@ import dev.climbdesk.eventoutbox.application.OutboxEventRecorder
 import dev.climbdesk.eventoutbox.domain.OutboxEvent
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.springframework.stereotype.Repository
+import org.springframework.transaction.annotation.Propagation
+import org.springframework.transaction.annotation.Transactional
 
 @Repository
 class OutboxEventPersistenceAdapter(
     private val outboxEventJpaRepository: OutboxEventJpaRepository,
     private val objectMapper: ObjectMapper,
 ) : OutboxEventRecorder {
+    @Transactional(propagation = Propagation.MANDATORY)
     override fun record(event: ReservationConfirmedEvent): OutboxEvent {
         val outboxEvent = OutboxEvent.pending(
             eventType = RESERVATION_CONFIRMED_EVENT_TYPE,
