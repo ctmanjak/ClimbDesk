@@ -344,12 +344,9 @@ class PassProductIntegrationTest @Autowired constructor(
                 totalCount = totalCount,
                 price = price,
                 validDays = validDays,
+                createdAt = createdAt,
             ),
         )
-        if (createdAt != null) {
-            passProduct.createdAt = createdAt
-            return passProductJpaRepository.saveAndFlush(passProduct)
-        }
         return passProduct
     }
 

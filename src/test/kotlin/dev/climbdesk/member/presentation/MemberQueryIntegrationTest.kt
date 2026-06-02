@@ -277,12 +277,9 @@ class MemberQueryIntegrationTest @Autowired constructor(
                 email = email,
                 status = status,
                 deactivatedAt = deactivatedAt,
+                createdAt = createdAt,
             ),
         )
-        if (createdAt != null) {
-            member.createdAt = createdAt
-            return memberJpaRepository.saveAndFlush(member)
-        }
         return member
     }
 
