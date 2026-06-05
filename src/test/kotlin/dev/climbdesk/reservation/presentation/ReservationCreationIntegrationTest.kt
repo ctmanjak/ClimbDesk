@@ -42,6 +42,7 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -368,7 +369,7 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         memberJpaRepository.saveAndFlush(
             MemberJpaEntity(
                 name = "Hong Gil Dong",
-                phone = "010${memberSequence++}".padEnd(11, '0'),
+                phone = "010${memberSequence.getAndIncrement()}".padEnd(11, '0'),
                 email = null,
                 status = status,
                 deactivatedAt = deactivatedAt,
@@ -488,6 +489,6 @@ class ReservationCreationIntegrationTest @Autowired constructor(
     }
 
     private companion object {
-        var memberSequence = 10000000
+        val memberSequence = AtomicInteger(10000000)
     }
 }

@@ -53,10 +53,19 @@ class ReservationPersistenceAdapter(
     private fun String.containsConfirmedReservationUniqueConstraint(): Boolean {
         val normalized = lowercase(Locale.ROOT)
         return normalized.contains(CONFIRMED_RESERVATION_UNIQUE_INDEX) ||
-            (normalized.contains("reservation") && normalized.contains("unique"))
+            (
+                normalized.contains(RESERVATIONS_TABLE_NAME) &&
+                    normalized.contains(MEMBER_ID_COLUMN_NAME) &&
+                    normalized.contains(CLASS_SESSION_ID_COLUMN_NAME) &&
+                    normalized.contains(UNIQUE_VIOLATION_MARKER)
+                )
     }
 
     private companion object {
         const val CONFIRMED_RESERVATION_UNIQUE_INDEX = "uk_reservations_confirmed_member_class"
+        const val RESERVATIONS_TABLE_NAME = "reservations"
+        const val MEMBER_ID_COLUMN_NAME = "member_id"
+        const val CLASS_SESSION_ID_COLUMN_NAME = "class_session_id"
+        const val UNIQUE_VIOLATION_MARKER = "unique"
     }
 }
