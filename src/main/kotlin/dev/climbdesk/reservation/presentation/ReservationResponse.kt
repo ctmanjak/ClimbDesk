@@ -4,6 +4,7 @@ import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.pass.domain.MemberPassStatus
 import dev.climbdesk.reservation.application.ReservationClassSessionResult
 import dev.climbdesk.reservation.application.ReservationMemberPassResult
+import dev.climbdesk.reservation.application.ReservationPageResult
 import dev.climbdesk.reservation.application.ReservationResult
 import dev.climbdesk.reservation.domain.ReservationCancelReason
 import dev.climbdesk.reservation.domain.ReservationStatus
@@ -35,6 +36,14 @@ data class ReservationMemberPassResponse(
     val status: MemberPassStatus,
 )
 
+data class ReservationListResponse(
+    val items: List<ReservationResponse>,
+    val page: Int,
+    val size: Int,
+    val totalElements: Long,
+    val totalPages: Int,
+)
+
 fun ReservationResult.toResponse(): ReservationResponse =
     ReservationResponse(
         id = id,
@@ -62,4 +71,13 @@ private fun ReservationMemberPassResult.toResponse(): ReservationMemberPassRespo
         id = id,
         remainingCount = remainingCount,
         status = status,
+    )
+
+fun ReservationPageResult.toResponse(): ReservationListResponse =
+    ReservationListResponse(
+        items = items.map { it.toResponse() },
+        page = page,
+        size = size,
+        totalElements = totalElements,
+        totalPages = totalPages,
     )

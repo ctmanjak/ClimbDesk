@@ -3,10 +3,16 @@ package dev.climbdesk.reservation.infrastructure.persistence
 import dev.climbdesk.common.error.ApplicationException
 import dev.climbdesk.common.error.ErrorCode
 import dev.climbdesk.reservation.domain.Reservation
+import dev.climbdesk.reservation.domain.ReservationClassSessionSummary
+import dev.climbdesk.reservation.domain.ReservationFilters
+import dev.climbdesk.reservation.domain.ReservationMemberPassSummary
 import dev.climbdesk.reservation.domain.ReservationRepository
+import dev.climbdesk.reservation.domain.ReservationSummary
+import dev.climbdesk.reservation.domain.ReservationSummaryPage
 import dev.climbdesk.reservation.domain.ReservationStatus
 import org.hibernate.exception.ConstraintViolationException
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Repository
 import java.util.Locale
 
@@ -20,6 +26,24 @@ class ReservationPersistenceAdapter(
             classSessionId = classSessionId,
             status = ReservationStatus.CONFIRMED,
         )
+
+    override fun findById(reservationId: Long): ReservationSummary? =
+        reservationJpaRepository.findReservationSummaryById(reservationId)?.toSummary()
+
+    override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
+        val reservationPage = reservationJpaRepository.findReservationSummaries(
+            memberId = filters.memberId,
+            classSessionId = filters.classSessionId,
+            status = filters.status,
+            pageable = PageRequest.of(page, size),
+        )
+        return ReservationSummaryPage(
+            items = reservationPage.content.map { it.toSummary() },
+            page = reservationPage.number,
+            size = reservationPage.size,
+            totalElements = reservationPage.totalElements,
+        )
+    }
 
     override fun save(reservation: Reservation): Reservation =
         try {
@@ -49,6 +73,29 @@ class ReservationPersistenceAdapter(
 
     private fun Throwable.causeChain(): Sequence<Throwable> =
         generateSequence(this) { it.cause }
+
+    private fun ReservationSummaryProjection.toSummary(): ReservationSummary =
+        ReservationSummary(
+            id = id,
+            memberId = memberId,
+            classSessionId = classSessionId,
+            memberPassId = memberPassId,
+            status = status,
+            reservedAt = reservedAt,
+            canceledAt = canceledAt,
+            cancelReason = cancelReason,
+            classSession = ReservationClassSessionSummary(
+                id = classSessionSummaryId,
+                capacity = classSessionCapacity,
+                reservedCount = classSessionReservedCount,
+                status = classSessionStatus,
+            ),
+            memberPass = ReservationMemberPassSummary(
+                id = memberPassSummaryId,
+                remainingCount = memberPassRemainingCount,
+                status = memberPassStatus,
+            ),
+        )
 
     private fun String.containsConfirmedReservationUniqueConstraint(): Boolean {
         val normalized = lowercase(Locale.ROOT)

@@ -18,9 +18,16 @@ import dev.climbdesk.pass.domain.MemberPassPage
 import dev.climbdesk.pass.domain.PassProductType
 import dev.climbdesk.pass.domain.PassUsageHistoryPage
 import dev.climbdesk.reservation.domain.Reservation
+import dev.climbdesk.reservation.domain.ReservationClassSessionSummary
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
+import dev.climbdesk.reservation.domain.ReservationFilters
+import dev.climbdesk.reservation.domain.ReservationMemberPassSummary
 import dev.climbdesk.reservation.domain.ReservationRepository
+import dev.climbdesk.reservation.domain.ReservationSummary
+import dev.climbdesk.reservation.domain.ReservationSummaryPage
+import dev.climbdesk.reservation.domain.ReservationStatus
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import java.math.BigDecimal
@@ -42,6 +49,73 @@ class ReservationApplicationServiceTest {
         }.isInstanceOf(ApplicationException::class.java)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.MEMBER_PASS_VERSION_CONFLICT)
+    }
+
+    @Test
+    fun `get reservation maps missing reservation to reservation not found`() {
+        val service = ReservationApplicationService(
+            memberRepository = StaticMemberRepository(activeMember()),
+            classSessionRepository = StaticClassSessionRepository(openClassSession()),
+            memberPassRepository = StaticMemberPassRepository(),
+            reservationRepository = StaticReservationRepository(),
+            outboxEventRecorder = NoopOutboxEventRecorder(),
+        )
+
+        assertThatThrownBy { service.getReservation(999) }
+            .isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.RESERVATION_NOT_FOUND)
+    }
+
+    @Test
+    fun `list reservations applies page constraints and filters`() {
+        val repository = StaticReservationRepository(listOf(reservationSummary()))
+        val service = ReservationApplicationService(
+            memberRepository = StaticMemberRepository(activeMember()),
+            classSessionRepository = StaticClassSessionRepository(openClassSession()),
+            memberPassRepository = StaticMemberPassRepository(),
+            reservationRepository = repository,
+            outboxEventRecorder = NoopOutboxEventRecorder(),
+        )
+
+        val result = service.listReservations(
+            page = 0,
+            size = 20,
+            memberId = 1,
+            classSessionId = 2,
+            status = ReservationStatus.CONFIRMED,
+        )
+
+        assertThat(result.items).hasSize(1)
+        assertThat(result.totalElements).isEqualTo(1)
+        assertThat(repository.lastFilters).isEqualTo(
+            ReservationFilters(
+                memberId = 1,
+                classSessionId = 2,
+                status = ReservationStatus.CONFIRMED,
+            ),
+        )
+    }
+
+    @Test
+    fun `list reservations rejects invalid paging`() {
+        val service = ReservationApplicationService(
+            memberRepository = StaticMemberRepository(activeMember()),
+            classSessionRepository = StaticClassSessionRepository(openClassSession()),
+            memberPassRepository = StaticMemberPassRepository(),
+            reservationRepository = StaticReservationRepository(),
+            outboxEventRecorder = NoopOutboxEventRecorder(),
+        )
+
+        assertThatThrownBy { service.listReservations(-1, 20, null, null, null) }
+            .isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
+
+        assertThatThrownBy { service.listReservations(0, 101, null, null, null) }
+            .isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.VALIDATION_FAILED)
     }
 }
 
@@ -84,8 +158,40 @@ private class OptimisticLockingMemberPassRepository(
     }
 }
 
-private class StaticReservationRepository : ReservationRepository {
+private class StaticMemberPassRepository : MemberPassRepository {
+    override fun existsById(memberPassId: Long): Boolean = false
+    override fun findPageByMemberId(memberId: Long, page: Int, size: Int): MemberPassPage = error("not used")
+    override fun findUsageHistoryPageByMemberPassId(
+        memberPassId: Long,
+        page: Int,
+        size: Int,
+    ): PassUsageHistoryPage = error("not used")
+
+    override fun findAvailablePassForUse(memberId: Long, now: Instant): MemberPass? = error("not used")
+    override fun save(memberPass: MemberPass): MemberPass = error("not used")
+    override fun saveUsageResult(usageResult: MemberPassUsageResult): MemberPassUsageResult = error("not used")
+}
+
+private class StaticReservationRepository(
+    private val summaries: List<ReservationSummary> = emptyList(),
+) : ReservationRepository {
+    var lastFilters: ReservationFilters? = null
+        private set
+
     override fun existsConfirmedByMemberIdAndClassSessionId(memberId: Long, classSessionId: Long): Boolean = false
+
+    override fun findById(reservationId: Long): ReservationSummary? =
+        summaries.firstOrNull { it.id == reservationId }
+
+    override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
+        lastFilters = filters
+        return ReservationSummaryPage(
+            items = summaries,
+            page = page,
+            size = size,
+            totalElements = summaries.size.toLong(),
+        )
+    }
 
     override fun save(reservation: Reservation): Reservation =
         reservation.copy(id = 3, createdAt = Instant.parse("2026-05-01T00:00:00Z"))
@@ -129,4 +235,27 @@ private fun availableMemberPass(): MemberPass =
         status = MemberPassStatus.ACTIVE,
         issuedAt = Instant.parse("2026-05-01T00:00:00Z"),
         expiresAt = Instant.parse("2026-08-01T00:00:00Z"),
+    )
+
+private fun reservationSummary(): ReservationSummary =
+    ReservationSummary(
+        id = 10,
+        memberId = 1,
+        classSessionId = 2,
+        memberPassId = 4,
+        status = ReservationStatus.CONFIRMED,
+        reservedAt = Instant.parse("2026-05-01T00:00:00Z"),
+        canceledAt = null,
+        cancelReason = null,
+        classSession = ReservationClassSessionSummary(
+            id = 2,
+            capacity = 10,
+            reservedCount = 1,
+            status = ClassSessionStatus.OPEN,
+        ),
+        memberPass = ReservationMemberPassSummary(
+            id = 4,
+            remainingCount = 9,
+            status = MemberPassStatus.ACTIVE,
+        ),
     )
