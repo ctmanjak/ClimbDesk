@@ -42,6 +42,10 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 @Testcontainers(disabledWithoutDocker = true)
@@ -347,12 +351,87 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         }
     }
 
+    @Test
+    fun `concurrent reservation requests do not exceed class session capacity`() {
+        val token = accessTokenFor("manager-concurrent-capacity@climbdesk.local", AdminUserRole.MANAGER)
+        val classSession = saveClassSession(capacity = 1)
+        val firstMember = saveMember(status = MemberStatus.ACTIVE)
+        val secondMember = saveMember(status = MemberStatus.ACTIVE)
+        saveMemberPass(firstMember)
+        saveMemberPass(secondMember)
+
+        val statuses = runConcurrently(
+            { postReservationStatus(token, firstMember.id, classSession.id) },
+            { postReservationStatus(token, secondMember.id, classSession.id) },
+        )
+
+        assertThat(statuses).containsExactlyInAnyOrder(201, 409)
+        assertThat(reservationJpaRepository.count()).isEqualTo(1)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
+        assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
+    }
+
+    @Test
+    fun `concurrent duplicate reservation requests create only one confirmed reservation`() {
+        val token = accessTokenFor("manager-concurrent-duplicate@climbdesk.local", AdminUserRole.MANAGER)
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val classSession = saveClassSession(capacity = 2)
+        saveMemberPass(member, remainingCount = 5)
+
+        val statuses = runConcurrently(
+            { postReservationStatus(token, member.id, classSession.id) },
+            { postReservationStatus(token, member.id, classSession.id) },
+        )
+
+        assertThat(statuses).containsExactlyInAnyOrder(201, 409)
+        assertThat(
+            reservationJpaRepository.existsByMemberIdAndClassSessionIdAndStatus(
+                member.id,
+                classSession.id,
+                ReservationStatus.CONFIRMED,
+            ),
+        ).isTrue()
+        assertThat(reservationJpaRepository.count()).isEqualTo(1)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
+        assertThat(memberPassJpaRepository.findAll().single().remainingCount).isEqualTo(4)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
+        assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
+    }
+
     private fun postReservation(token: String, memberId: Long, classSessionId: Long) =
         mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
             header("Authorization", "Bearer $token")
             content = """{"memberId":$memberId,"classSessionId":$classSessionId}"""
         }
+
+    private fun postReservationStatus(token: String, memberId: Long, classSessionId: Long): Int =
+        postReservation(token, memberId, classSessionId)
+            .andReturn()
+            .response
+            .status
+
+    private fun runConcurrently(vararg requests: () -> Int): List<Int> {
+        val start = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(requests.size)
+
+        return try {
+            val futures = requests.map { request ->
+                executor.submit(
+                    Callable {
+                        check(start.await(5, TimeUnit.SECONDS))
+                        request()
+                    },
+                )
+            }
+            start.countDown()
+            futures.map { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            executor.shutdownNow()
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue()
+        }
+    }
 
     private fun assertNoReservationSideEffects(classSessionId: Long, expectedReservedCount: Int = 0) {
         assertThat(reservationJpaRepository.count()).isZero()
