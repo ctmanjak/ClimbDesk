@@ -8,6 +8,7 @@ import dev.climbdesk.common.error.ErrorCode
 import dev.climbdesk.event.application.OutboxEventRecorder
 import dev.climbdesk.pass.domain.MemberPassRepository
 import dev.climbdesk.pass.domain.PassUsageHistoryReason
+import dev.climbdesk.reservation.domain.Reservation
 import dev.climbdesk.reservation.domain.ReservationCancelReason
 import dev.climbdesk.reservation.domain.ReservationRepository
 import org.springframework.orm.ObjectOptimisticLockingFailureException
@@ -63,26 +64,7 @@ class ClassSessionApplicationService(
         val confirmedReservations = reservationRepository.findConfirmedByClassSessionIdForUpdate(classSession.id)
 
         confirmedReservations.forEach { reservation ->
-            val memberPass = memberPassRepository.findById(reservation.memberPassId)
-                ?: throw ApplicationException(ErrorCode.MEMBER_PASS_NOT_FOUND)
-            try {
-                memberPassRepository.saveUsageResult(
-                    memberPass.restore(
-                        reservationId = reservation.id,
-                        reason = PassUsageHistoryReason.CLASS_SESSION_CANCELED,
-                        now = now,
-                    ),
-                )
-            } catch (exception: ObjectOptimisticLockingFailureException) {
-                throw ApplicationException(ErrorCode.MEMBER_PASS_VERSION_CONFLICT, cause = exception)
-            }
-
-            reservationRepository.save(
-                reservation.cancel(
-                    reason = ReservationCancelReason.CLASS_SESSION_CANCELED,
-                    canceledAt = now,
-                ),
-            )
+            restoreMemberPassAndCancelReservation(reservation, now)
         }
 
         val savedClassSession = classSessionRepository.save(
@@ -95,12 +77,35 @@ class ClassSessionApplicationService(
         outboxEventRecorder.record(
             ClassSessionCanceledEvent(
                 classSessionId = savedClassSession.id,
-                cancelReason = requireNotNull(savedClassSession.cancelReason),
+                cancelReason = command.reason,
                 affectedReservationCount = savedClassSession.affectedReservationCount,
                 occurredAt = now,
             ),
         )
 
         return ClassSessionResult.from(savedClassSession)
+    }
+
+    private fun restoreMemberPassAndCancelReservation(reservation: Reservation, now: Instant) {
+        val memberPass = memberPassRepository.findById(reservation.memberPassId)
+            ?: throw ApplicationException(ErrorCode.MEMBER_PASS_NOT_FOUND)
+        try {
+            memberPassRepository.saveUsageResult(
+                memberPass.restore(
+                    reservationId = reservation.id,
+                    reason = PassUsageHistoryReason.CLASS_SESSION_CANCELED,
+                    now = now,
+                ),
+            )
+        } catch (exception: ObjectOptimisticLockingFailureException) {
+            throw ApplicationException(ErrorCode.MEMBER_PASS_VERSION_CONFLICT, cause = exception)
+        }
+
+        reservationRepository.save(
+            reservation.cancel(
+                reason = ReservationCancelReason.CLASS_SESSION_CANCELED,
+                canceledAt = now,
+            ),
+        )
     }
 }

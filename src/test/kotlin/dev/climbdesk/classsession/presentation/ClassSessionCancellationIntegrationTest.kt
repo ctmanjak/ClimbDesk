@@ -457,6 +457,7 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
     }
 
     private companion object {
+        // Start high to avoid collisions with fixed phone numbers in other test data.
         val memberSequence = AtomicInteger(10000000)
     }
 }
