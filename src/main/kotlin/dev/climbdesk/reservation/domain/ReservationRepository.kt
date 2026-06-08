@@ -7,6 +7,7 @@ import java.time.Instant
 interface ReservationRepository {
     fun existsConfirmedByMemberIdAndClassSessionId(memberId: Long, classSessionId: Long): Boolean
     fun findById(reservationId: Long): ReservationSummary?
+    fun findDomainById(reservationId: Long): Reservation?
     fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage
     fun save(reservation: Reservation): Reservation
 }

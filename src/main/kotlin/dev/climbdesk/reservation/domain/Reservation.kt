@@ -1,5 +1,7 @@
 package dev.climbdesk.reservation.domain
 
+import dev.climbdesk.common.error.DomainException
+import dev.climbdesk.common.error.ErrorCode
 import java.time.Instant
 
 data class Reservation(
@@ -14,6 +16,18 @@ data class Reservation(
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
 ) {
+    fun cancel(reason: ReservationCancelReason, canceledAt: Instant = Instant.now()): Reservation {
+        if (status == ReservationStatus.CANCELED) {
+            throw DomainException(ErrorCode.RESERVATION_ALREADY_CANCELED)
+        }
+
+        return copy(
+            status = ReservationStatus.CANCELED,
+            canceledAt = canceledAt,
+            cancelReason = reason,
+        )
+    }
+
     companion object {
         fun confirm(
             memberId: Long,
