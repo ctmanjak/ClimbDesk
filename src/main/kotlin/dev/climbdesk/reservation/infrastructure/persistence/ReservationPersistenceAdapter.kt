@@ -30,6 +30,9 @@ class ReservationPersistenceAdapter(
     override fun findById(reservationId: Long): ReservationSummary? =
         reservationJpaRepository.findReservationSummaryById(reservationId)?.toSummary()
 
+    override fun findDomainById(reservationId: Long): Reservation? =
+        reservationJpaRepository.findById(reservationId).orElse(null)?.toDomain()
+
     override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
         val reservationPage = reservationJpaRepository.findReservationSummaries(
             memberId = filters.memberId,

@@ -18,6 +18,7 @@ import dev.climbdesk.pass.domain.MemberPassPage
 import dev.climbdesk.pass.domain.PassProductType
 import dev.climbdesk.pass.domain.PassUsageHistoryPage
 import dev.climbdesk.reservation.domain.Reservation
+import dev.climbdesk.reservation.domain.ReservationCanceledEvent
 import dev.climbdesk.reservation.domain.ReservationClassSessionSummary
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import dev.climbdesk.reservation.domain.ReservationFilters
@@ -47,6 +48,22 @@ class ReservationApplicationServiceTest {
         assertThatThrownBy {
             service.reserveClass(CreateReservationCommand(memberId = 1, classSessionId = 2))
         }.isInstanceOf(ApplicationException::class.java)
+            .extracting("errorCode")
+            .isEqualTo(ErrorCode.MEMBER_PASS_VERSION_CONFLICT)
+    }
+
+    @Test
+    fun `member pass optimistic lock conflict during cancellation maps to member pass version conflict`() {
+        val service = ReservationApplicationService(
+            memberRepository = StaticMemberRepository(activeMember()),
+            classSessionRepository = StaticClassSessionRepository(openClassSession(reservedCount = 1)),
+            memberPassRepository = OptimisticLockingMemberPassRepository(availableMemberPass(remainingCount = 9)),
+            reservationRepository = StaticReservationRepository(domainReservation = confirmedReservation()),
+            outboxEventRecorder = NoopOutboxEventRecorder(),
+        )
+
+        assertThatThrownBy { service.cancelReservation(10) }
+            .isInstanceOf(ApplicationException::class.java)
             .extracting("errorCode")
             .isEqualTo(ErrorCode.MEMBER_PASS_VERSION_CONFLICT)
     }
@@ -141,6 +158,7 @@ private class OptimisticLockingMemberPassRepository(
     private val memberPass: MemberPass,
 ) : MemberPassRepository {
     override fun existsById(memberPassId: Long): Boolean = memberPass.id == memberPassId
+    override fun findById(memberPassId: Long): MemberPass? = memberPass.takeIf { it.id == memberPassId }
     override fun findPageByMemberId(memberId: Long, page: Int, size: Int): MemberPassPage = error("not used")
     override fun findUsageHistoryPageByMemberPassId(
         memberPassId: Long,
@@ -160,6 +178,7 @@ private class OptimisticLockingMemberPassRepository(
 
 private class StaticMemberPassRepository : MemberPassRepository {
     override fun existsById(memberPassId: Long): Boolean = false
+    override fun findById(memberPassId: Long): MemberPass? = null
     override fun findPageByMemberId(memberId: Long, page: Int, size: Int): MemberPassPage = error("not used")
     override fun findUsageHistoryPageByMemberPassId(
         memberPassId: Long,
@@ -174,6 +193,7 @@ private class StaticMemberPassRepository : MemberPassRepository {
 
 private class StaticReservationRepository(
     private val summaries: List<ReservationSummary> = emptyList(),
+    private val domainReservation: Reservation? = null,
 ) : ReservationRepository {
     var lastFilters: ReservationFilters? = null
         private set
@@ -182,6 +202,9 @@ private class StaticReservationRepository(
 
     override fun findById(reservationId: Long): ReservationSummary? =
         summaries.firstOrNull { it.id == reservationId }
+
+    override fun findDomainById(reservationId: Long): Reservation? =
+        domainReservation?.takeIf { it.id == reservationId }
 
     override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
         lastFilters = filters
@@ -199,6 +222,7 @@ private class StaticReservationRepository(
 
 private class NoopOutboxEventRecorder : OutboxEventRecorder {
     override fun record(event: ReservationConfirmedEvent): OutboxEvent = error("not used")
+    override fun record(event: ReservationCanceledEvent): OutboxEvent = error("not used")
 }
 
 private fun activeMember(): Member =
@@ -210,18 +234,18 @@ private fun activeMember(): Member =
         status = MemberStatus.ACTIVE,
     )
 
-private fun openClassSession(): ClassSession =
+private fun openClassSession(reservedCount: Int = 0): ClassSession =
     ClassSession(
         id = 2,
         title = "Morning Bouldering",
         startsAt = Instant.parse("2026-05-10T10:00:00Z"),
         endsAt = Instant.parse("2026-05-10T11:00:00Z"),
         capacity = 10,
-        reservedCount = 0,
+        reservedCount = reservedCount,
         status = ClassSessionStatus.OPEN,
     )
 
-private fun availableMemberPass(): MemberPass =
+private fun availableMemberPass(remainingCount: Int = 10): MemberPass =
     MemberPass(
         id = 4,
         memberId = 1,
@@ -229,12 +253,22 @@ private fun availableMemberPass(): MemberPass =
         productNameSnapshot = "10 Count Pass",
         passTypeSnapshot = PassProductType.COUNT_PASS,
         totalCount = 10,
-        remainingCount = 10,
+        remainingCount = remainingCount,
         priceSnapshot = BigDecimal("150000"),
         validDaysSnapshot = 90,
         status = MemberPassStatus.ACTIVE,
         issuedAt = Instant.parse("2026-05-01T00:00:00Z"),
         expiresAt = Instant.parse("2026-08-01T00:00:00Z"),
+    )
+
+private fun confirmedReservation(): Reservation =
+    Reservation(
+        id = 10,
+        memberId = 1,
+        classSessionId = 2,
+        memberPassId = 4,
+        status = ReservationStatus.CONFIRMED,
+        reservedAt = Instant.parse("2026-05-01T00:00:00Z"),
     )
 
 private fun reservationSummary(): ReservationSummary =

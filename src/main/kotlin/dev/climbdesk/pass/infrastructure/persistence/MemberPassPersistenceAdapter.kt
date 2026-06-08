@@ -17,6 +17,9 @@ class MemberPassPersistenceAdapter(
     override fun existsById(memberPassId: Long): Boolean =
         memberPassJpaRepository.existsById(memberPassId)
 
+    override fun findById(memberPassId: Long): MemberPass? =
+        memberPassJpaRepository.findById(memberPassId).orElse(null)?.toDomain()
+
     override fun findPageByMemberId(memberId: Long, page: Int, size: Int): MemberPassPage {
         val memberPassPage = memberPassJpaRepository.findAllByMemberIdOrderByIdDesc(
             memberId,

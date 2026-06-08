@@ -6,7 +6,10 @@ import dev.climbdesk.common.error.ErrorCode
 import dev.climbdesk.event.application.OutboxEventRecorder
 import dev.climbdesk.member.domain.MemberRepository
 import dev.climbdesk.pass.domain.MemberPassRepository
+import dev.climbdesk.pass.domain.PassUsageHistoryReason
 import dev.climbdesk.reservation.domain.Reservation
+import dev.climbdesk.reservation.domain.ReservationCanceledEvent
+import dev.climbdesk.reservation.domain.ReservationCancelReason
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import dev.climbdesk.reservation.domain.ReservationFilters
 import dev.climbdesk.reservation.domain.ReservationRepository
@@ -69,6 +72,52 @@ class ReservationApplicationService(
 
         return ReservationResult.from(
             reservation = reservation,
+            classSession = savedClassSession,
+            memberPass = usageResult.memberPass,
+        )
+    }
+
+    @Transactional
+    fun cancelReservation(reservationId: Long): ReservationResult {
+        val now = Instant.now()
+        val reservation = reservationRepository.findDomainById(reservationId)
+            ?: throw ApplicationException(ErrorCode.RESERVATION_NOT_FOUND)
+        val canceledReservation = reservation.cancel(ReservationCancelReason.USER_REQUESTED, now)
+
+        val classSession = classSessionRepository.findByIdForUpdate(reservation.classSessionId)
+            ?: throw ApplicationException(ErrorCode.CLASS_SESSION_NOT_FOUND)
+        val canceledClassSessionSeat = classSession.cancelSeat()
+
+        val memberPass = memberPassRepository.findById(reservation.memberPassId)
+            ?: throw ApplicationException(ErrorCode.MEMBER_PASS_NOT_FOUND)
+        val usageResult = try {
+            memberPassRepository.saveUsageResult(
+                memberPass.restore(
+                    reservationId = reservation.id,
+                    reason = PassUsageHistoryReason.RESERVATION_CANCELED,
+                    now = now,
+                ),
+            )
+        } catch (exception: ObjectOptimisticLockingFailureException) {
+            throw ApplicationException(ErrorCode.MEMBER_PASS_VERSION_CONFLICT, cause = exception)
+        }
+
+        val savedReservation = reservationRepository.save(canceledReservation)
+        val savedClassSession = classSessionRepository.save(canceledClassSessionSeat)
+
+        outboxEventRecorder.record(
+            ReservationCanceledEvent(
+                reservationId = savedReservation.id,
+                memberId = savedReservation.memberId,
+                classSessionId = savedReservation.classSessionId,
+                memberPassId = usageResult.memberPass.id,
+                cancelReason = requireNotNull(savedReservation.cancelReason),
+                occurredAt = now,
+            ),
+        )
+
+        return ReservationResult.from(
+            reservation = savedReservation,
             classSession = savedClassSession,
             memberPass = usageResult.memberPass,
         )

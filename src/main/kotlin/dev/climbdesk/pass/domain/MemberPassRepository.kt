@@ -4,6 +4,7 @@ import java.time.Instant
 
 interface MemberPassRepository {
     fun existsById(memberPassId: Long): Boolean
+    fun findById(memberPassId: Long): MemberPass?
     fun findPageByMemberId(memberId: Long, page: Int, size: Int): MemberPassPage
     fun findUsageHistoryPageByMemberPassId(memberPassId: Long, page: Int, size: Int): PassUsageHistoryPage
     fun findAvailablePassForUse(memberId: Long, now: Instant): MemberPass?

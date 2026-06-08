@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.validation.annotation.Validated
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PatchMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
@@ -55,4 +56,11 @@ class ReservationController(
         @PathVariable reservationId: Long,
     ): ReservationResponse =
         reservationApplicationService.getReservation(reservationId).toResponse()
+
+    @PatchMapping("/{reservationId}/cancel")
+    @PreAuthorize("hasAnyRole('MANAGER', 'STAFF')")
+    fun cancelReservation(
+        @PathVariable reservationId: Long,
+    ): ReservationResponse =
+        reservationApplicationService.cancelReservation(reservationId).toResponse()
 }

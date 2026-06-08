@@ -3,6 +3,8 @@ package dev.climbdesk.event.infrastructure.persistence
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.climbdesk.event.application.OutboxEventRecorder
 import dev.climbdesk.event.domain.OutboxEventStatus
+import dev.climbdesk.reservation.domain.ReservationCanceledEvent
+import dev.climbdesk.reservation.domain.ReservationCancelReason
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -79,6 +81,36 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `record persists pending reservation canceled event with jsonb payload`() {
+        val occurredAt = Instant.parse("2026-06-07T00:00:00Z")
+
+        val saved = transactionTemplate.execute {
+            outboxEventRecorder.record(reservationCanceledEvent(occurredAt))
+        } ?: error("outbox event was not returned")
+
+        val persisted = outboxEventJpaRepository.findById(saved.id).orElseThrow()
+        val payload = objectMapper.readTree(persisted.payload)
+        assertThat(persisted.eventType).isEqualTo("ReservationCanceledEvent")
+        assertThat(persisted.aggregateType).isEqualTo("Reservation")
+        assertThat(persisted.aggregateId).isEqualTo(101L)
+        assertThat(persisted.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(persisted.occurredAt).isEqualTo(occurredAt)
+        assertThat(payload["reservationId"].longValue()).isEqualTo(101L)
+        assertThat(payload["memberId"].longValue()).isEqualTo(201L)
+        assertThat(payload["classSessionId"].longValue()).isEqualTo(301L)
+        assertThat(payload["memberPassId"].longValue()).isEqualTo(401L)
+        assertThat(payload["cancelReason"].textValue()).isEqualTo("USER_REQUESTED")
+        assertThat(payload["occurredAt"].textValue()).isEqualTo("2026-06-07T00:00:00Z")
+        assertThat(
+            jdbcTemplate.queryForObject(
+                "select pg_typeof(payload)::text from outbox_events where id = ?",
+                String::class.java,
+                persisted.id,
+            ),
+        ).isEqualTo("jsonb")
+    }
+
+    @Test
     fun `record joins caller transaction and rolls back with it`() {
         transactionTemplate.executeWithoutResult { transactionStatus ->
             outboxEventRecorder.record(reservationConfirmedEvent())
@@ -105,6 +137,18 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
             memberId = 201L,
             classSessionId = 301L,
             memberPassId = 401L,
+            occurredAt = occurredAt,
+        )
+
+    private fun reservationCanceledEvent(
+        occurredAt: Instant = Instant.parse("2026-06-07T00:00:00Z"),
+    ): ReservationCanceledEvent =
+        ReservationCanceledEvent(
+            reservationId = 101L,
+            memberId = 201L,
+            classSessionId = 301L,
+            memberPassId = 401L,
+            cancelReason = ReservationCancelReason.USER_REQUESTED,
             occurredAt = occurredAt,
         )
 }
