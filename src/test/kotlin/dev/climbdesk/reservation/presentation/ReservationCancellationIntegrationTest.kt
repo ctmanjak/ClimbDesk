@@ -1,6 +1,7 @@
 package dev.climbdesk.reservation.presentation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.TestConcurrencyUtils
 import dev.climbdesk.auth.domain.AdminUserRole
 import dev.climbdesk.auth.domain.AdminUserStatus
 import dev.climbdesk.auth.infrastructure.adapter.Pbkdf2PasswordVerifier
@@ -44,10 +45,6 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.concurrent.Callable
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 @Testcontainers(disabledWithoutDocker = true)
@@ -246,26 +243,10 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         val classSession = saveClassSession(reservedCount = 1)
         val memberPass = saveMemberPass(member, remainingCount = 9)
         val reservationId = insertReservation(member.id, classSession.id, memberPass.id, ReservationStatus.CONFIRMED)
-        val start = CountDownLatch(1)
-        val executor = Executors.newFixedThreadPool(2)
-
-        val statuses = try {
-            val tasks = List(2) {
-                Callable {
-                    check(start.await(5, TimeUnit.SECONDS))
-                    mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
-                        header("Authorization", "Bearer $token")
-                    }.andReturn().response.status
-                }
-            }
-
-            val futures = tasks.map(executor::submit)
-            start.countDown()
-            futures.map { it.get(10, TimeUnit.SECONDS) }
-        } finally {
-            executor.shutdownNow()
-            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue()
-        }
+        val statuses = TestConcurrencyUtils.runConcurrently(
+            { cancelReservationStatus(token, reservationId) },
+            { cancelReservationStatus(token, reservationId) },
+        )
 
         assertThat(statuses).containsExactlyInAnyOrder(200, 409)
         val reservation = reservationJpaRepository.findById(reservationId).orElseThrow()
@@ -275,6 +256,11 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
         assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
     }
+
+    private fun cancelReservationStatus(token: String, reservationId: Long): Int =
+        mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
+            header("Authorization", "Bearer $token")
+        }.andReturn().response.status
 
     @Test
     fun `reservation cancellation requires jwt authorization`() {

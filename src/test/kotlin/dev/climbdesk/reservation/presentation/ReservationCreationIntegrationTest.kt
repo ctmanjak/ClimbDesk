@@ -1,6 +1,7 @@
 package dev.climbdesk.reservation.presentation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.TestConcurrencyUtils
 import dev.climbdesk.auth.domain.AdminUserRole
 import dev.climbdesk.auth.domain.AdminUserStatus
 import dev.climbdesk.auth.infrastructure.adapter.Pbkdf2PasswordVerifier
@@ -42,10 +43,6 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.concurrent.Callable
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 @Testcontainers(disabledWithoutDocker = true)
@@ -360,7 +357,7 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         saveMemberPass(firstMember)
         saveMemberPass(secondMember)
 
-        val statuses = runConcurrently(
+        val statuses = TestConcurrencyUtils.runConcurrently(
             { postReservationStatus(token, firstMember.id, classSession.id) },
             { postReservationStatus(token, secondMember.id, classSession.id) },
         )
@@ -379,7 +376,7 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val classSession = saveClassSession(capacity = 2)
         saveMemberPass(member, remainingCount = 5)
 
-        val statuses = runConcurrently(
+        val statuses = TestConcurrencyUtils.runConcurrently(
             { postReservationStatus(token, member.id, classSession.id) },
             { postReservationStatus(token, member.id, classSession.id) },
         )
@@ -411,27 +408,6 @@ class ReservationCreationIntegrationTest @Autowired constructor(
             .andReturn()
             .response
             .status
-
-    private fun runConcurrently(vararg requests: () -> Int): List<Int> {
-        val start = CountDownLatch(1)
-        val executor = Executors.newFixedThreadPool(requests.size)
-
-        return try {
-            val futures = requests.map { request ->
-                executor.submit(
-                    Callable {
-                        check(start.await(5, TimeUnit.SECONDS))
-                        request()
-                    },
-                )
-            }
-            start.countDown()
-            futures.map { it.get(10, TimeUnit.SECONDS) }
-        } finally {
-            executor.shutdownNow()
-            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue()
-        }
-    }
 
     private fun assertNoReservationSideEffects(classSessionId: Long, expectedReservedCount: Int = 0) {
         assertThat(reservationJpaRepository.count()).isZero()
