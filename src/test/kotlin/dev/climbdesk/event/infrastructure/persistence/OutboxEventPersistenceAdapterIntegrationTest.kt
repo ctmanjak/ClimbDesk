@@ -101,6 +101,13 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
         assertThat(payload["memberPassId"].longValue()).isEqualTo(401L)
         assertThat(payload["cancelReason"].textValue()).isEqualTo("USER_REQUESTED")
         assertThat(payload["occurredAt"].textValue()).isEqualTo("2026-06-07T00:00:00Z")
+        assertThat(
+            jdbcTemplate.queryForObject(
+                "select pg_typeof(payload)::text from outbox_events where id = ?",
+                String::class.java,
+                persisted.id,
+            ),
+        ).isEqualTo("jsonb")
     }
 
     @Test

@@ -8,6 +8,7 @@ import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.springframework.stereotype.Repository
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import java.time.Instant
 
 @Repository
 class OutboxEventPersistenceAdapter(
@@ -15,26 +16,38 @@ class OutboxEventPersistenceAdapter(
     private val objectMapper: ObjectMapper,
 ) : OutboxEventRecorder {
     @Transactional(propagation = Propagation.MANDATORY)
-    override fun record(event: ReservationConfirmedEvent): OutboxEvent {
-        val outboxEvent = OutboxEvent.pending(
+    override fun record(event: ReservationConfirmedEvent): OutboxEvent =
+        createAndSaveOutbox(
             eventType = RESERVATION_CONFIRMED_EVENT_TYPE,
             aggregateType = RESERVATION_AGGREGATE_TYPE,
             aggregateId = event.reservationId,
-            payload = objectMapper.writeValueAsString(event),
+            eventPayload = event,
             occurredAt = event.occurredAt,
         )
 
-        return outboxEventJpaRepository.saveAndFlush(outboxEvent.toJpaEntity()).toDomain()
-    }
-
     @Transactional(propagation = Propagation.MANDATORY)
-    override fun record(event: ReservationCanceledEvent): OutboxEvent {
-        val outboxEvent = OutboxEvent.pending(
+    override fun record(event: ReservationCanceledEvent): OutboxEvent =
+        createAndSaveOutbox(
             eventType = RESERVATION_CANCELED_EVENT_TYPE,
             aggregateType = RESERVATION_AGGREGATE_TYPE,
             aggregateId = event.reservationId,
-            payload = objectMapper.writeValueAsString(event),
+            eventPayload = event,
             occurredAt = event.occurredAt,
+        )
+
+    private fun createAndSaveOutbox(
+        eventPayload: Any,
+        eventType: String,
+        aggregateType: String,
+        aggregateId: Long,
+        occurredAt: Instant,
+    ): OutboxEvent {
+        val outboxEvent = OutboxEvent.pending(
+            eventType = eventType,
+            aggregateType = aggregateType,
+            aggregateId = aggregateId,
+            payload = objectMapper.writeValueAsString(eventPayload),
+            occurredAt = occurredAt,
         )
 
         return outboxEventJpaRepository.saveAndFlush(outboxEvent.toJpaEntity()).toDomain()

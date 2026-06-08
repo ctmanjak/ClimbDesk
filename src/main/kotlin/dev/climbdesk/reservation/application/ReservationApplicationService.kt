@@ -111,7 +111,7 @@ class ReservationApplicationService(
                 memberId = savedReservation.memberId,
                 classSessionId = savedReservation.classSessionId,
                 memberPassId = usageResult.memberPass.id,
-                cancelReason = ReservationCancelReason.USER_REQUESTED,
+                cancelReason = requireNotNull(savedReservation.cancelReason),
                 occurredAt = now,
             ),
         )
