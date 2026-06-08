@@ -1,6 +1,7 @@
 package dev.climbdesk.reservation.presentation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.TestConcurrencyUtils
 import dev.climbdesk.auth.domain.AdminUserRole
 import dev.climbdesk.auth.domain.AdminUserStatus
 import dev.climbdesk.auth.infrastructure.adapter.Pbkdf2PasswordVerifier
@@ -347,12 +348,66 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         }
     }
 
+    @Test
+    fun `concurrent reservation requests do not exceed class session capacity`() {
+        val token = accessTokenFor("manager-concurrent-capacity@climbdesk.local", AdminUserRole.MANAGER)
+        val classSession = saveClassSession(capacity = 1)
+        val firstMember = saveMember(status = MemberStatus.ACTIVE)
+        val secondMember = saveMember(status = MemberStatus.ACTIVE)
+        saveMemberPass(firstMember)
+        saveMemberPass(secondMember)
+
+        val statuses = TestConcurrencyUtils.runConcurrently(
+            { postReservationStatus(token, firstMember.id, classSession.id) },
+            { postReservationStatus(token, secondMember.id, classSession.id) },
+        )
+
+        assertThat(statuses).containsExactlyInAnyOrder(201, 409)
+        assertThat(reservationJpaRepository.count()).isEqualTo(1)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
+        assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
+    }
+
+    @Test
+    fun `concurrent duplicate reservation requests create only one confirmed reservation`() {
+        val token = accessTokenFor("manager-concurrent-duplicate@climbdesk.local", AdminUserRole.MANAGER)
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val classSession = saveClassSession(capacity = 2)
+        saveMemberPass(member, remainingCount = 5)
+
+        val statuses = TestConcurrencyUtils.runConcurrently(
+            { postReservationStatus(token, member.id, classSession.id) },
+            { postReservationStatus(token, member.id, classSession.id) },
+        )
+
+        assertThat(statuses).containsExactlyInAnyOrder(201, 409)
+        assertThat(
+            reservationJpaRepository.existsByMemberIdAndClassSessionIdAndStatus(
+                member.id,
+                classSession.id,
+                ReservationStatus.CONFIRMED,
+            ),
+        ).isTrue()
+        assertThat(reservationJpaRepository.count()).isEqualTo(1)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
+        assertThat(memberPassJpaRepository.findAll().single().remainingCount).isEqualTo(4)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
+        assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
+    }
+
     private fun postReservation(token: String, memberId: Long, classSessionId: Long) =
         mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
             header("Authorization", "Bearer $token")
             content = """{"memberId":$memberId,"classSessionId":$classSessionId}"""
         }
+
+    private fun postReservationStatus(token: String, memberId: Long, classSessionId: Long): Int =
+        postReservation(token, memberId, classSessionId)
+            .andReturn()
+            .response
+            .status
 
     private fun assertNoReservationSideEffects(classSessionId: Long, expectedReservedCount: Int = 0) {
         assertThat(reservationJpaRepository.count()).isZero()

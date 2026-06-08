@@ -1,6 +1,7 @@
 package dev.climbdesk.reservation.presentation
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.TestConcurrencyUtils
 import dev.climbdesk.auth.domain.AdminUserRole
 import dev.climbdesk.auth.domain.AdminUserStatus
 import dev.climbdesk.auth.infrastructure.adapter.Pbkdf2PasswordVerifier
@@ -234,6 +235,32 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         assertThat(reservationJpaRepository.count()).isEqualTo(2)
         assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
     }
+
+    @Test
+    fun `concurrent cancellation applies side effects once`() {
+        val token = accessTokenFor("manager-concurrent-cancel@climbdesk.local", AdminUserRole.MANAGER)
+        val member = saveMember()
+        val classSession = saveClassSession(reservedCount = 1)
+        val memberPass = saveMemberPass(member, remainingCount = 9)
+        val reservationId = insertReservation(member.id, classSession.id, memberPass.id, ReservationStatus.CONFIRMED)
+        val statuses = TestConcurrencyUtils.runConcurrently(
+            { cancelReservationStatus(token, reservationId) },
+            { cancelReservationStatus(token, reservationId) },
+        )
+
+        assertThat(statuses).containsExactlyInAnyOrder(200, 409)
+        val reservation = reservationJpaRepository.findById(reservationId).orElseThrow()
+        assertThat(reservation.status).isEqualTo(ReservationStatus.CANCELED)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isZero()
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(10)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
+        assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
+    }
+
+    private fun cancelReservationStatus(token: String, reservationId: Long): Int =
+        mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
+            header("Authorization", "Bearer $token")
+        }.andReturn().response.status
 
     @Test
     fun `reservation cancellation requires jwt authorization`() {

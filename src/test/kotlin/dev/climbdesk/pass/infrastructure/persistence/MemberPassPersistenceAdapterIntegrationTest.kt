@@ -9,11 +9,13 @@ import dev.climbdesk.pass.domain.PassUsageHistoryReason
 import dev.climbdesk.pass.domain.PassUsageHistoryType
 import dev.climbdesk.pass.domain.PassProductType
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
+import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.jdbc.core.JdbcTemplate
@@ -21,6 +23,10 @@ import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -111,6 +117,62 @@ class MemberPassPersistenceAdapterIntegrationTest @Autowired constructor(
         assertThat(savedHistory.changedCount).isEqualTo(-1)
         assertThat(savedHistory.remainingCountAfter).isEqualTo(9)
         assertThat(savedHistory.createdAt).isNotNull()
+    }
+
+    @Test
+    fun `usage result save detects stale member pass version conflict`() {
+        val now = Instant.parse("2026-05-28T00:00:00Z")
+        val member = saveMember()
+        val passProduct = savePassProduct()
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 10)
+        val firstReservationId = saveReservation(member.id, memberPass.id)
+        val secondReservationId = saveReservation(member.id, memberPass.id)
+        val firstSnapshot = requireNotNull(memberPassRepository.findById(memberPass.id))
+        val secondSnapshot = requireNotNull(memberPassRepository.findById(memberPass.id))
+
+        memberPassRepository.saveUsageResult(
+            firstSnapshot.consume(reservationId = firstReservationId, now = now),
+        )
+
+        assertThatThrownBy {
+            memberPassRepository.saveUsageResult(
+                secondSnapshot.consume(reservationId = secondReservationId, now = now),
+            )
+        }.isInstanceOf(ObjectOptimisticLockingFailureException::class.java)
+
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(9)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
+    }
+
+    @Test
+    fun `concurrent usage result save detects member pass version conflict`() {
+        val now = Instant.parse("2026-05-28T00:00:00Z")
+        val member = saveMember()
+        val passProduct = savePassProduct()
+        val memberPass = saveMemberPass(member = member, passProduct = passProduct, remainingCount = 10)
+        val firstReservationId = saveReservation(member.id, memberPass.id)
+        val secondReservationId = saveReservation(member.id, memberPass.id)
+        val firstSnapshot = requireNotNull(memberPassRepository.findById(memberPass.id))
+        val secondSnapshot = requireNotNull(memberPassRepository.findById(memberPass.id))
+
+        val failures = runConcurrently(
+            {
+                memberPassRepository.saveUsageResult(
+                    firstSnapshot.consume(reservationId = firstReservationId, now = now),
+                )
+            },
+            {
+                memberPassRepository.saveUsageResult(
+                    secondSnapshot.consume(reservationId = secondReservationId, now = now),
+                )
+            },
+        )
+
+        assertThat(failures.count { it == null }).isEqualTo(1)
+        assertThat(failures.filterIsInstance<ObjectOptimisticLockingFailureException>()).hasSize(1)
+        assertThat(failures.filterIsInstance<Throwable>()).hasSize(1)
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(9)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
     }
 
     @ParameterizedTest
@@ -299,4 +361,25 @@ class MemberPassPersistenceAdapterIntegrationTest @Autowired constructor(
                 createdAt = createdAt,
             ),
         )
+
+    private fun runConcurrently(vararg operations: () -> Unit): List<Throwable?> {
+        val start = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(operations.size)
+
+        return try {
+            val futures = operations.map { operation ->
+                executor.submit(
+                    Callable {
+                        check(start.await(5, TimeUnit.SECONDS))
+                        runCatching { operation() }.exceptionOrNull()
+                    },
+                )
+            }
+            start.countDown()
+            futures.map { it.get(10, TimeUnit.SECONDS) }
+        } finally {
+            executor.shutdownNow()
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue()
+        }
+    }
 }

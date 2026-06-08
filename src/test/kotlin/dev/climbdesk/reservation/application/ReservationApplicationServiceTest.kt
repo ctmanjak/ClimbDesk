@@ -206,6 +206,8 @@ private class StaticReservationRepository(
     override fun findDomainById(reservationId: Long): Reservation? =
         domainReservation?.takeIf { it.id == reservationId }
 
+    override fun findDomainByIdForUpdate(reservationId: Long): Reservation? = findDomainById(reservationId)
+
     override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
         lastFilters = filters
         return ReservationSummaryPage(

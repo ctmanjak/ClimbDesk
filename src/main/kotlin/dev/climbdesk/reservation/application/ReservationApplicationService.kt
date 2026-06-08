@@ -80,7 +80,7 @@ class ReservationApplicationService(
     @Transactional
     fun cancelReservation(reservationId: Long): ReservationResult {
         val now = Instant.now()
-        val reservation = reservationRepository.findDomainById(reservationId)
+        val reservation = reservationRepository.findDomainByIdForUpdate(reservationId)
             ?: throw ApplicationException(ErrorCode.RESERVATION_NOT_FOUND)
         val canceledReservation = reservation.cancel(ReservationCancelReason.USER_REQUESTED, now)
 

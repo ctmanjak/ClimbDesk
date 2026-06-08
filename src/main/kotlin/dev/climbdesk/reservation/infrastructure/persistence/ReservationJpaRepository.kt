@@ -3,10 +3,13 @@ package dev.climbdesk.reservation.infrastructure.persistence
 import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.pass.domain.MemberPassStatus
 import dev.climbdesk.reservation.domain.ReservationStatus
+import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.time.Instant
 
 interface ReservationJpaRepository : JpaRepository<ReservationJpaEntity, Long> {
@@ -15,6 +18,10 @@ interface ReservationJpaRepository : JpaRepository<ReservationJpaEntity, Long> {
         classSessionId: Long,
         status: ReservationStatus,
     ): Boolean
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select reservation from ReservationJpaEntity reservation where reservation.id = :id")
+    fun findByIdForUpdate(@Param("id") id: Long): ReservationJpaEntity?
 
     @Query(
         """
