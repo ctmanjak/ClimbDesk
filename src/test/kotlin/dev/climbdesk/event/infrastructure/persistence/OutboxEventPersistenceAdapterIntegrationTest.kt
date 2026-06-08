@@ -1,6 +1,7 @@
 package dev.climbdesk.event.infrastructure.persistence
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.classsession.domain.ClassSessionCanceledEvent
 import dev.climbdesk.event.application.OutboxEventRecorder
 import dev.climbdesk.event.domain.OutboxEventStatus
 import dev.climbdesk.reservation.domain.ReservationCanceledEvent
@@ -44,6 +45,34 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
     @AfterEach
     fun tearDown() {
         outboxEventJpaRepository.deleteAll()
+    }
+
+    @Test
+    fun `record persists pending class session canceled event with jsonb payload`() {
+        val occurredAt = Instant.parse("2026-06-08T00:00:00Z")
+
+        val saved = transactionTemplate.execute {
+            outboxEventRecorder.record(classSessionCanceledEvent(occurredAt))
+        } ?: error("outbox event was not returned")
+
+        val persisted = outboxEventJpaRepository.findById(saved.id).orElseThrow()
+        val payload = objectMapper.readTree(persisted.payload)
+        assertThat(persisted.eventType).isEqualTo("ClassSessionCanceledEvent")
+        assertThat(persisted.aggregateType).isEqualTo("ClassSession")
+        assertThat(persisted.aggregateId).isEqualTo(301L)
+        assertThat(persisted.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(persisted.occurredAt).isEqualTo(occurredAt)
+        assertThat(payload["classSessionId"].longValue()).isEqualTo(301L)
+        assertThat(payload["cancelReason"].textValue()).isEqualTo("Operational issue")
+        assertThat(payload["affectedReservationCount"].intValue()).isEqualTo(2)
+        assertThat(payload["occurredAt"].textValue()).isEqualTo("2026-06-08T00:00:00Z")
+        assertThat(
+            jdbcTemplate.queryForObject(
+                "select pg_typeof(payload)::text from outbox_events where id = ?",
+                String::class.java,
+                persisted.id,
+            ),
+        ).isEqualTo("jsonb")
     }
 
     @Test
@@ -137,6 +166,16 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
             memberId = 201L,
             classSessionId = 301L,
             memberPassId = 401L,
+            occurredAt = occurredAt,
+        )
+
+    private fun classSessionCanceledEvent(
+        occurredAt: Instant = Instant.parse("2026-06-08T00:00:00Z"),
+    ): ClassSessionCanceledEvent =
+        ClassSessionCanceledEvent(
+            classSessionId = 301L,
+            cancelReason = "Operational issue",
+            affectedReservationCount = 2,
             occurredAt = occurredAt,
         )
 

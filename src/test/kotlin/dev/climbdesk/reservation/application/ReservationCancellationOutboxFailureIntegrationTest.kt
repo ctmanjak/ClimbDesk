@@ -1,6 +1,7 @@
 package dev.climbdesk.reservation.application
 
 import dev.climbdesk.auth.infrastructure.persistence.AdminUserJpaRepository
+import dev.climbdesk.classsession.domain.ClassSessionCanceledEvent
 import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEntity
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaRepository
@@ -179,6 +180,10 @@ class ReservationCancellationOutboxFailureIntegrationTest @Autowired constructor
         @Primary
         fun failingOutboxEventRecorder(): OutboxEventRecorder =
             object : OutboxEventRecorder {
+                override fun record(event: ClassSessionCanceledEvent): OutboxEvent {
+                    throw DataIntegrityViolationException("outbox save failed")
+                }
+
                 override fun record(event: ReservationConfirmedEvent): OutboxEvent {
                     throw DataIntegrityViolationException("outbox save failed")
                 }

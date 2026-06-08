@@ -36,6 +36,13 @@ class ReservationPersistenceAdapter(
     override fun findDomainByIdForUpdate(reservationId: Long): Reservation? =
         reservationJpaRepository.findByIdForUpdate(reservationId)?.toDomain()
 
+    override fun findConfirmedByClassSessionIdForUpdate(classSessionId: Long): List<Reservation> =
+        reservationJpaRepository.findAllByClassSessionIdAndStatusOrderByIdAsc(
+            classSessionId = classSessionId,
+            status = ReservationStatus.CONFIRMED,
+        )
+            .map(ReservationJpaEntity::toDomain)
+
     override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
         val reservationPage = reservationJpaRepository.findReservationSummaries(
             memberId = filters.memberId,

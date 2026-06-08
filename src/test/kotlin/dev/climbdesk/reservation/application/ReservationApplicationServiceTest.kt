@@ -1,6 +1,7 @@
 package dev.climbdesk.reservation.application
 
 import dev.climbdesk.classsession.domain.ClassSession
+import dev.climbdesk.classsession.domain.ClassSessionCanceledEvent
 import dev.climbdesk.classsession.domain.ClassSessionRepository
 import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.common.error.ApplicationException
@@ -208,6 +209,8 @@ private class StaticReservationRepository(
 
     override fun findDomainByIdForUpdate(reservationId: Long): Reservation? = findDomainById(reservationId)
 
+    override fun findConfirmedByClassSessionIdForUpdate(classSessionId: Long): List<Reservation> = emptyList()
+
     override fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage {
         lastFilters = filters
         return ReservationSummaryPage(
@@ -223,6 +226,7 @@ private class StaticReservationRepository(
 }
 
 private class NoopOutboxEventRecorder : OutboxEventRecorder {
+    override fun record(event: ClassSessionCanceledEvent): OutboxEvent = error("not used")
     override fun record(event: ReservationConfirmedEvent): OutboxEvent = error("not used")
     override fun record(event: ReservationCanceledEvent): OutboxEvent = error("not used")
 }
