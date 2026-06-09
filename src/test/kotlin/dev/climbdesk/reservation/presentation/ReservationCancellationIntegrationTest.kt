@@ -135,11 +135,22 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
 
         mockMvc.patch("/api/v1/reservations/9223372036854775807/cancel") {
             header("Authorization", "Bearer $token")
+            header("X-Trace-Id", RESERVATION_CANCEL_TRACE_ID)
         }.andExpect {
             status { isNotFound() }
             jsonPath("$.code") { value("RESERVATION_NOT_FOUND") }
             jsonPath("$.message") { value("Reservation not found.") }
+            expectReservationCancelErrorShape(
+                status = 404,
+                code = "RESERVATION_NOT_FOUND",
+                message = "Reservation not found.",
+                reservationId = 9223372036854775807,
+            )
         }
+
+        assertThat(reservationJpaRepository.count()).isZero()
+        assertThat(passUsageHistoryJpaRepository.count()).isZero()
+        assertThat(outboxEventJpaRepository.count()).isZero()
     }
 
     @Test
@@ -152,11 +163,24 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
 
         mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
             header("Authorization", "Bearer $token")
+            header("X-Trace-Id", RESERVATION_CANCEL_TRACE_ID)
         }.andExpect {
             status { isConflict() }
             jsonPath("$.code") { value("RESERVATION_ALREADY_CANCELED") }
+            expectReservationCancelErrorShape(
+                status = 409,
+                code = "RESERVATION_ALREADY_CANCELED",
+                message = "Reservation is already canceled.",
+                reservationId = reservationId,
+            )
         }
 
+        val reservation = reservationJpaRepository.findById(reservationId).orElseThrow()
+        assertThat(reservation.status).isEqualTo(ReservationStatus.CANCELED)
+        assertThat(reservation.canceledAt).isNotNull()
+        assertThat(reservation.cancelReason).isEqualTo(ReservationCancelReason.USER_REQUESTED)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isZero()
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(10)
         assertThat(passUsageHistoryJpaRepository.count()).isZero()
         assertThat(outboxEventJpaRepository.count()).isZero()
     }
@@ -261,6 +285,22 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
             header("Authorization", "Bearer $token")
         }.andReturn().response.status
+
+    private fun org.springframework.test.web.servlet.MockMvcResultMatchersDsl.expectReservationCancelErrorShape(
+        status: Int,
+        code: String,
+        message: String,
+        reservationId: Long,
+    ) {
+        jsonPath("$.timestamp") { exists() }
+        jsonPath("$.status") { value(status) }
+        jsonPath("$.code") { value(code) }
+        jsonPath("$.message") { value(message) }
+        jsonPath("$.path") { value("/api/v1/reservations/$reservationId/cancel") }
+        jsonPath("$.traceId") { value(RESERVATION_CANCEL_TRACE_ID) }
+        jsonPath("$.details") { doesNotExist() }
+        jsonPath("$.stackTrace") { doesNotExist() }
+    }
 
     @Test
     fun `reservation cancellation requires jwt authorization`() {
@@ -393,5 +433,6 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
 
     private companion object {
         val memberSequence = AtomicInteger(11000000)
+        const val RESERVATION_CANCEL_TRACE_ID = "trace-reservation-cancel"
     }
 }
