@@ -218,23 +218,26 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
         val racingPass = saveMemberPass(racingMember, remainingCount = 10)
         insertReservation(existingMember.id, classSession.id, existingPass.id)
 
-        val statuses = TestConcurrencyUtils.runConcurrently(
-            { cancelClassSessionStatus(classSession.id, token) },
-            { postReservationStatus(token, racingMember.id, classSession.id) },
+        val results = TestConcurrencyUtils.runConcurrently(
+            { cancelClassSessionResult(classSession.id, token) },
+            { postReservationResult(token, racingMember.id, classSession.id) },
         )
-        val cancellationStatus = statuses[0]
-        val reservationStatus = statuses[1]
+        val cancellationResult = results[0]
+        val reservationResult = results[1]
 
-        assertThat(cancellationStatus).isEqualTo(200)
-        assertThat(reservationStatus).isIn(201, 409)
+        assertThat(cancellationResult.status).isEqualTo(200)
+        assertThat(reservationResult.status).isIn(201, 409)
+        if (reservationResult.status == 409) {
+            assertThat(reservationResult.code).isEqualTo("CLASS_SESSION_NOT_OPEN")
+        }
 
         val savedClassSession = classSessionJpaRepository.findById(classSession.id).orElseThrow()
         assertThat(savedClassSession.status).isEqualTo(ClassSessionStatus.CANCELED)
         assertThat(savedClassSession.reservedCount).isZero()
-        assertThat(savedClassSession.affectedReservationCount).isEqualTo(if (reservationStatus == 201) 2 else 1)
+        assertThat(savedClassSession.affectedReservationCount).isEqualTo(if (reservationResult.status == 201) 2 else 1)
 
         val reservations = reservationJpaRepository.findAll()
-        assertThat(reservations).hasSize(if (reservationStatus == 201) 2 else 1)
+        assertThat(reservations).hasSize(if (reservationResult.status == 201) 2 else 1)
         assertThat(reservations).allSatisfy { reservation ->
             assertThat(reservation.status).isEqualTo(ReservationStatus.CANCELED)
             assertThat(reservation.cancelReason).isEqualTo(ReservationCancelReason.CLASS_SESSION_CANCELED)
@@ -248,10 +251,10 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
         ).isFalse()
         assertThat(memberPassJpaRepository.findById(existingPass.id).orElseThrow().remainingCount).isEqualTo(10)
         assertThat(memberPassJpaRepository.findById(racingPass.id).orElseThrow().remainingCount).isEqualTo(10)
-        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(if (reservationStatus == 201) 3 else 1)
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(if (reservationResult.status == 201) 3 else 1)
         assertThat(outboxEventJpaRepository.findAll().map { it.eventType })
             .containsExactlyInAnyOrderElementsOf(
-                if (reservationStatus == 201) {
+                if (reservationResult.status == 201) {
                     listOf("ReservationConfirmedEvent", "ClassSessionCanceledEvent")
                 } else {
                     listOf("ClassSessionCanceledEvent")
@@ -335,18 +338,24 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
             content = """{"reason":"Operational issue"}"""
         }
 
-    private fun cancelClassSessionStatus(classSessionId: Long, token: String): Int =
-        cancelClassSession(classSessionId, token)
+    private fun cancelClassSessionResult(classSessionId: Long, token: String): ReservationPostResult {
+        val response = cancelClassSession(classSessionId, token)
             .andReturn()
             .response
-            .status
+        return ReservationPostResult(status = response.status, code = null)
+    }
 
-    private fun postReservationStatus(token: String, memberId: Long, classSessionId: Long): Int =
-        mockMvc.post("/api/v1/reservations") {
+    private fun postReservationResult(token: String, memberId: Long, classSessionId: Long): ReservationPostResult {
+        val response = mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
             header("Authorization", "Bearer $token")
             content = """{"memberId":$memberId,"classSessionId":$classSessionId}"""
-        }.andReturn().response.status
+        }.andReturn().response
+        val code = response.contentAsString
+            .takeIf { it.isNotBlank() }
+            ?.let { objectMapper.readTree(it)["code"]?.asText() }
+        return ReservationPostResult(status = response.status, code = code)
+    }
 
     private fun saveClassSession(
         capacity: Int = 12,
@@ -461,3 +470,8 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
         val memberSequence = AtomicInteger(10000000)
     }
 }
+
+private data class ReservationPostResult(
+    val status: Int,
+    val code: String?,
+)

@@ -267,12 +267,13 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         val classSession = saveClassSession(reservedCount = 1)
         val memberPass = saveMemberPass(member, remainingCount = 9)
         val reservationId = insertReservation(member.id, classSession.id, memberPass.id, ReservationStatus.CONFIRMED)
-        val statuses = TestConcurrencyUtils.runConcurrently(
-            { cancelReservationStatus(token, reservationId) },
-            { cancelReservationStatus(token, reservationId) },
+        val results = TestConcurrencyUtils.runConcurrently(
+            { cancelReservationResult(token, reservationId) },
+            { cancelReservationResult(token, reservationId) },
         )
 
-        assertThat(statuses).containsExactlyInAnyOrder(200, 409)
+        assertThat(results.map { it.status }).containsExactlyInAnyOrder(200, 409)
+        assertThat(results.single { it.status == 409 }.code).isEqualTo("RESERVATION_ALREADY_CANCELED")
         val reservation = reservationJpaRepository.findById(reservationId).orElseThrow()
         assertThat(reservation.status).isEqualTo(ReservationStatus.CANCELED)
         assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isZero()
@@ -281,10 +282,15 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
     }
 
-    private fun cancelReservationStatus(token: String, reservationId: Long): Int =
-        mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
+    private fun cancelReservationResult(token: String, reservationId: Long): ReservationCancelResult {
+        val response = mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
             header("Authorization", "Bearer $token")
-        }.andReturn().response.status
+        }.andReturn().response
+        val code = response.contentAsString
+            .takeIf { it.isNotBlank() }
+            ?.let { objectMapper.readTree(it)["code"]?.asText() }
+        return ReservationCancelResult(status = response.status, code = code)
+    }
 
     private fun org.springframework.test.web.servlet.MockMvcResultMatchersDsl.expectReservationCancelErrorShape(
         status: Int,
@@ -436,3 +442,8 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         const val RESERVATION_CANCEL_TRACE_ID = "trace-reservation-cancel"
     }
 }
+
+private data class ReservationCancelResult(
+    val status: Int,
+    val code: String?,
+)
