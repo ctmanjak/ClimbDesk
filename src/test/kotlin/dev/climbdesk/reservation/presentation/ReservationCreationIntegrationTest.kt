@@ -138,15 +138,20 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("manager-inactive@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.INACTIVE, deactivatedAt = Instant.parse("2026-05-01T00:00:00Z"))
         val classSession = saveClassSession()
-        saveMemberPass(member)
+        val memberPass = saveMemberPass(member)
 
         postReservation(token, member.id, classSession.id)
             .andExpect {
                 status { isConflict() }
                 jsonPath("$.code") { value("MEMBER_INACTIVE") }
+                expectReservationErrorShape(
+                    status = 409,
+                    code = "MEMBER_INACTIVE",
+                    message = "Member is inactive.",
+                )
             }
 
-        assertNoReservationSideEffects(classSession.id)
+        assertNoReservationSideEffects(classSession.id, memberPass.id)
     }
 
     @Test
@@ -158,6 +163,11 @@ class ReservationCreationIntegrationTest @Autowired constructor(
             .andExpect {
                 status { isNotFound() }
                 jsonPath("$.code") { value("MEMBER_NOT_FOUND") }
+                expectReservationErrorShape(
+                    status = 404,
+                    code = "MEMBER_NOT_FOUND",
+                    message = "Member not found.",
+                )
             }
 
         assertNoReservationSideEffects(classSession.id)
@@ -167,15 +177,21 @@ class ReservationCreationIntegrationTest @Autowired constructor(
     fun `missing class session fails with class session not found`() {
         val token = accessTokenFor("manager-missing-class@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.ACTIVE)
-        saveMemberPass(member)
+        val memberPass = saveMemberPass(member)
 
         postReservation(token, member.id, 9223372036854775807)
             .andExpect {
                 status { isNotFound() }
                 jsonPath("$.code") { value("CLASS_SESSION_NOT_FOUND") }
+                expectReservationErrorShape(
+                    status = 404,
+                    code = "CLASS_SESSION_NOT_FOUND",
+                    message = "Class session not found.",
+                )
             }
 
         assertThat(reservationJpaRepository.count()).isZero()
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(10)
         assertThat(passUsageHistoryJpaRepository.count()).isZero()
         assertThat(outboxEventJpaRepository.count()).isZero()
     }
@@ -185,15 +201,20 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("manager-canceled-class@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.ACTIVE)
         val classSession = saveClassSession(status = ClassSessionStatus.CANCELED, canceledAt = Instant.now())
-        saveMemberPass(member)
+        val memberPass = saveMemberPass(member)
 
         postReservation(token, member.id, classSession.id)
             .andExpect {
                 status { isConflict() }
                 jsonPath("$.code") { value("CLASS_SESSION_NOT_OPEN") }
+                expectReservationErrorShape(
+                    status = 409,
+                    code = "CLASS_SESSION_NOT_OPEN",
+                    message = "Class session is not open.",
+                )
             }
 
-        assertNoReservationSideEffects(classSession.id)
+        assertNoReservationSideEffects(classSession.id, memberPass.id)
     }
 
     @Test
@@ -201,15 +222,20 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("manager-closed-class@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.ACTIVE)
         val classSession = saveClassSession(status = ClassSessionStatus.CLOSED)
-        saveMemberPass(member)
+        val memberPass = saveMemberPass(member)
 
         postReservation(token, member.id, classSession.id)
             .andExpect {
                 status { isConflict() }
                 jsonPath("$.code") { value("CLASS_SESSION_NOT_OPEN") }
+                expectReservationErrorShape(
+                    status = 409,
+                    code = "CLASS_SESSION_NOT_OPEN",
+                    message = "Class session is not open.",
+                )
             }
 
-        assertNoReservationSideEffects(classSession.id)
+        assertNoReservationSideEffects(classSession.id, memberPass.id)
     }
 
     @Test
@@ -217,15 +243,20 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("manager-full-class@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.ACTIVE)
         val classSession = saveClassSession(capacity = 1, reservedCount = 1)
-        saveMemberPass(member)
+        val memberPass = saveMemberPass(member)
 
         postReservation(token, member.id, classSession.id)
             .andExpect {
                 status { isConflict() }
                 jsonPath("$.code") { value("CLASS_SESSION_FULL") }
+                expectReservationErrorShape(
+                    status = 409,
+                    code = "CLASS_SESSION_FULL",
+                    message = "Class session is full.",
+                )
             }
 
-        assertNoReservationSideEffects(classSession.id, expectedReservedCount = 1)
+        assertNoReservationSideEffects(classSession.id, memberPass.id, expectedReservedCount = 1)
     }
 
     @Test
@@ -240,9 +271,15 @@ class ReservationCreationIntegrationTest @Autowired constructor(
             .andExpect {
                 status { isConflict() }
                 jsonPath("$.code") { value("DUPLICATE_RESERVATION") }
+                expectReservationErrorShape(
+                    status = 409,
+                    code = "DUPLICATE_RESERVATION",
+                    message = "Member already has a confirmed reservation for this class session.",
+                )
             }
 
         assertThat(reservationJpaRepository.count()).isEqualTo(1)
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(5)
         assertThat(passUsageHistoryJpaRepository.count()).isZero()
         assertThat(outboxEventJpaRepository.count()).isZero()
         assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
@@ -314,6 +351,11 @@ class ReservationCreationIntegrationTest @Autowired constructor(
             .andExpect {
                 status { isConflict() }
                 jsonPath("$.code") { value("MEMBER_PASS_NOT_AVAILABLE") }
+                expectReservationErrorShape(
+                    status = 409,
+                    code = "MEMBER_PASS_NOT_AVAILABLE",
+                    message = "Member pass is not available.",
+                )
             }
 
         assertNoReservationSideEffects(classSession.id)
@@ -400,8 +442,24 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
             header("Authorization", "Bearer $token")
+            header("X-Trace-Id", RESERVATION_CREATE_TRACE_ID)
             content = """{"memberId":$memberId,"classSessionId":$classSessionId}"""
         }
+
+    private fun org.springframework.test.web.servlet.MockMvcResultMatchersDsl.expectReservationErrorShape(
+        status: Int,
+        code: String,
+        message: String,
+    ) {
+        jsonPath("$.timestamp") { exists() }
+        jsonPath("$.status") { value(status) }
+        jsonPath("$.code") { value(code) }
+        jsonPath("$.message") { value(message) }
+        jsonPath("$.path") { value("/api/v1/reservations") }
+        jsonPath("$.traceId") { value(RESERVATION_CREATE_TRACE_ID) }
+        jsonPath("$.details") { doesNotExist() }
+        jsonPath("$.stackTrace") { doesNotExist() }
+    }
 
     private fun postReservationStatus(token: String, memberId: Long, classSessionId: Long): Int =
         postReservation(token, memberId, classSessionId)
@@ -409,12 +467,19 @@ class ReservationCreationIntegrationTest @Autowired constructor(
             .response
             .status
 
-    private fun assertNoReservationSideEffects(classSessionId: Long, expectedReservedCount: Int = 0) {
+    private fun assertNoReservationSideEffects(
+        classSessionId: Long,
+        memberPassId: Long? = null,
+        expectedReservedCount: Int = 0,
+    ) {
         assertThat(reservationJpaRepository.count()).isZero()
         assertThat(passUsageHistoryJpaRepository.count()).isZero()
         assertThat(outboxEventJpaRepository.count()).isZero()
         assertThat(classSessionJpaRepository.findById(classSessionId).orElseThrow().reservedCount)
             .isEqualTo(expectedReservedCount)
+        memberPassId?.let {
+            assertThat(memberPassJpaRepository.findById(it).orElseThrow().remainingCount).isEqualTo(10)
+        }
     }
 
     private fun saveMember(
@@ -545,5 +610,6 @@ class ReservationCreationIntegrationTest @Autowired constructor(
 
     private companion object {
         val memberSequence = AtomicInteger(10000000)
+        const val RESERVATION_CREATE_TRACE_ID = "trace-reservation-create"
     }
 }
