@@ -1,6 +1,5 @@
 package dev.climbdesk.reservation.application
 
-import dev.climbdesk.auth.infrastructure.persistence.AdminUserJpaRepository
 import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEntity
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaRepository
@@ -54,7 +53,6 @@ import java.time.temporal.ChronoUnit
 )
 class ReservationCancellationMemberPassFailureIntegrationTest @Autowired constructor(
     private val reservationApplicationService: ReservationApplicationService,
-    private val adminUserJpaRepository: AdminUserJpaRepository,
     private val memberJpaRepository: MemberJpaRepository,
     private val passProductJpaRepository: PassProductJpaRepository,
     private val memberPassJpaRepository: MemberPassJpaRepository,
@@ -176,7 +174,6 @@ class ReservationCancellationMemberPassFailureIntegrationTest @Autowired constru
         memberPassJpaRepository.deleteAll()
         passProductJpaRepository.deleteAll()
         memberJpaRepository.deleteAll()
-        adminUserJpaRepository.deleteAll()
     }
 
     @TestConfiguration
