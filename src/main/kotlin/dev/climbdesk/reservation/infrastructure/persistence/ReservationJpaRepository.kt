@@ -23,6 +23,12 @@ interface ReservationJpaRepository : JpaRepository<ReservationJpaEntity, Long> {
     @Query("select reservation from ReservationJpaEntity reservation where reservation.id = :id")
     fun findByIdForUpdate(@Param("id") id: Long): ReservationJpaEntity?
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    fun findAllByClassSessionIdAndStatusOrderByIdAsc(
+        classSessionId: Long,
+        status: ReservationStatus,
+    ): List<ReservationJpaEntity>
+
     @Query(
         """
         select

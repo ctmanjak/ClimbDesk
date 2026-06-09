@@ -9,6 +9,7 @@ interface ReservationRepository {
     fun findById(reservationId: Long): ReservationSummary?
     fun findDomainById(reservationId: Long): Reservation?
     fun findDomainByIdForUpdate(reservationId: Long): Reservation?
+    fun findConfirmedByClassSessionIdForUpdate(classSessionId: Long): List<Reservation>
     fun findPage(filters: ReservationFilters, page: Int, size: Int): ReservationSummaryPage
     fun save(reservation: Reservation): Reservation
 }

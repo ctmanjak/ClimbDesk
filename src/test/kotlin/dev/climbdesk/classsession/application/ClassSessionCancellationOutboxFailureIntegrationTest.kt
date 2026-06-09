@@ -1,6 +1,5 @@
-package dev.climbdesk.reservation.application
+package dev.climbdesk.classsession.application
 
-import dev.climbdesk.auth.infrastructure.persistence.AdminUserJpaRepository
 import dev.climbdesk.classsession.domain.ClassSessionCanceledEvent
 import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEntity
@@ -18,8 +17,9 @@ import dev.climbdesk.pass.infrastructure.persistence.MemberPassJpaRepository
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaEntity
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaRepository
 import dev.climbdesk.pass.infrastructure.persistence.PassUsageHistoryJpaRepository
-import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import dev.climbdesk.reservation.domain.ReservationCanceledEvent
+import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
+import dev.climbdesk.reservation.domain.ReservationStatus
 import dev.climbdesk.reservation.infrastructure.persistence.ReservationJpaRepository
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -32,7 +32,9 @@ import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Primary
 import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.jdbc.core.JdbcTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
+import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -46,9 +48,8 @@ import java.time.temporal.ChronoUnit
         "spring.jpa.hibernate.ddl-auto=validate",
     ],
 )
-class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
-    private val reservationApplicationService: ReservationApplicationService,
-    private val adminUserJpaRepository: AdminUserJpaRepository,
+class ClassSessionCancellationOutboxFailureIntegrationTest @Autowired constructor(
+    private val classSessionApplicationService: ClassSessionApplicationService,
     private val memberJpaRepository: MemberJpaRepository,
     private val passProductJpaRepository: PassProductJpaRepository,
     private val memberPassJpaRepository: MemberPassJpaRepository,
@@ -56,6 +57,7 @@ class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
     private val reservationJpaRepository: ReservationJpaRepository,
     private val passUsageHistoryJpaRepository: PassUsageHistoryJpaRepository,
     private val outboxEventJpaRepository: OutboxEventJpaRepository,
+    private val jdbcTemplate: JdbcTemplate,
 ) {
     @BeforeEach
     fun setUp() {
@@ -68,32 +70,41 @@ class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
     }
 
     @Test
-    fun `outbox persistence failure rolls back reservation creation transaction`() {
+    fun `outbox persistence failure rolls back class session cancellation transaction`() {
         val member = saveMember()
         val classSession = saveClassSession()
         val memberPass = saveMemberPass(member)
+        val reservationId = insertReservation(member.id, classSession.id, memberPass.id)
 
         assertThatThrownBy {
-            reservationApplicationService.reserveClass(
-                CreateReservationCommand(
-                    memberId = member.id,
+            classSessionApplicationService.cancelClassSession(
+                CancelClassSessionCommand(
                     classSessionId = classSession.id,
+                    reason = "Operational issue",
                 ),
             )
         }.isInstanceOf(DataIntegrityViolationException::class.java)
 
-        assertThat(reservationJpaRepository.count()).isZero()
+        val reservation = reservationJpaRepository.findById(reservationId).orElseThrow()
+        val savedClassSession = classSessionJpaRepository.findById(classSession.id).orElseThrow()
+        assertThat(reservation.status).isEqualTo(ReservationStatus.CONFIRMED)
+        assertThat(reservation.canceledAt).isNull()
+        assertThat(reservation.cancelReason).isNull()
+        assertThat(savedClassSession.status).isEqualTo(ClassSessionStatus.OPEN)
+        assertThat(savedClassSession.reservedCount).isEqualTo(1)
+        assertThat(savedClassSession.canceledAt).isNull()
+        assertThat(savedClassSession.cancelReason).isNull()
+        assertThat(savedClassSession.affectedReservationCount).isZero()
+        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(9)
         assertThat(passUsageHistoryJpaRepository.count()).isZero()
         assertThat(outboxEventJpaRepository.count()).isZero()
-        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isZero()
-        assertThat(memberPassJpaRepository.findById(memberPass.id).orElseThrow().remainingCount).isEqualTo(10)
     }
 
     private fun saveMember(): MemberJpaEntity =
         memberJpaRepository.saveAndFlush(
             MemberJpaEntity(
                 name = "Hong Gil Dong",
-                phone = "01090000000",
+                phone = "01092000000",
                 email = null,
                 status = MemberStatus.ACTIVE,
             ),
@@ -106,7 +117,7 @@ class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
                 startsAt = Instant.parse("2026-05-10T10:00:00Z"),
                 endsAt = Instant.parse("2026-05-10T11:00:00Z"),
                 capacity = 10,
-                reservedCount = 0,
+                reservedCount = 1,
                 status = ClassSessionStatus.OPEN,
             ),
         )
@@ -129,7 +140,7 @@ class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
                 productNameSnapshot = passProduct.name,
                 passTypeSnapshot = passProduct.type,
                 totalCount = passProduct.totalCount,
-                remainingCount = 10,
+                remainingCount = 9,
                 priceSnapshot = passProduct.price,
                 validDaysSnapshot = passProduct.validDays,
                 status = MemberPassStatus.ACTIVE,
@@ -137,6 +148,27 @@ class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
                 expiresAt = Instant.parse("2026-05-01T00:00:00Z").plus(90, ChronoUnit.DAYS),
             ),
         )
+    }
+
+    private fun insertReservation(memberId: Long, classSessionId: Long, memberPassId: Long): Long {
+        val now = Instant.parse("2026-05-05T00:00:00Z")
+        return jdbcTemplate.queryForObject(
+            """
+            insert into reservations (
+              member_id, class_session_id, member_pass_id, status, reserved_at,
+              canceled_at, cancel_reason, created_at, updated_at
+            )
+            values (?, ?, ?, 'CONFIRMED', ?, null, null, ?, ?)
+            returning id
+            """.trimIndent(),
+            Long::class.java,
+            memberId,
+            classSessionId,
+            memberPassId,
+            Timestamp.from(now),
+            Timestamp.from(now),
+            Timestamp.from(now),
+        ) ?: error("reservation id was not returned")
     }
 
     private fun clearData() {
@@ -147,7 +179,6 @@ class ReservationCreationOutboxFailureIntegrationTest @Autowired constructor(
         memberPassJpaRepository.deleteAll()
         passProductJpaRepository.deleteAll()
         memberJpaRepository.deleteAll()
-        adminUserJpaRepository.deleteAll()
     }
 
     @TestConfiguration

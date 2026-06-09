@@ -39,6 +39,7 @@ data class ClassSession(
     fun cancel(
         reason: String,
         canceledAt: Instant = Instant.now(),
+        affectedReservationCount: Int = reservedCount,
     ): ClassSession {
         if (status == ClassSessionStatus.CANCELED) {
             throw DomainException(ErrorCode.CLASS_SESSION_ALREADY_CANCELED)
@@ -55,7 +56,7 @@ data class ClassSession(
             status = ClassSessionStatus.CANCELED,
             canceledAt = canceledAt,
             cancelReason = reason,
-            affectedReservationCount = reservedCount,
+            affectedReservationCount = affectedReservationCount,
         )
     }
 
