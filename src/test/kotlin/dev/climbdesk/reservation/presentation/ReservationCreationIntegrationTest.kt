@@ -393,22 +393,30 @@ class ReservationCreationIntegrationTest @Autowired constructor(
     @Test
     fun `concurrent reservation requests do not exceed class session capacity`() {
         val token = accessTokenFor("manager-concurrent-capacity@climbdesk.local", AdminUserRole.MANAGER)
-        val classSession = saveClassSession(capacity = 1)
-        val firstMember = saveMember(status = MemberStatus.ACTIVE)
-        val secondMember = saveMember(status = MemberStatus.ACTIVE)
-        saveMemberPass(firstMember)
-        saveMemberPass(secondMember)
+        val classSession = saveClassSession(capacity = 10)
+        val members = (1..30).map {
+            saveMember(status = MemberStatus.ACTIVE)
+        }
+        members.forEach { member ->
+            saveMemberPass(member, remainingCount = 1)
+        }
 
-        val statuses = TestConcurrencyUtils.runConcurrently(
-            { postReservationStatus(token, firstMember.id, classSession.id) },
-            { postReservationStatus(token, secondMember.id, classSession.id) },
+        val results = TestConcurrencyUtils.runConcurrently(
+            *members.map { member ->
+                { postReservationResult(token, member.id, classSession.id) }
+            }.toTypedArray(),
         )
 
-        assertThat(statuses).containsExactlyInAnyOrder(201, 409)
-        assertThat(reservationJpaRepository.count()).isEqualTo(1)
-        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
-        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(1)
-        assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
+        assertThat(results.count { it.status == 201 }).isEqualTo(10)
+        assertThat(results.count { it.status == 409 }).isEqualTo(20)
+        assertThat(results.filter { it.status == 409 }.map { it.code }).containsOnly("CLASS_SESSION_FULL")
+        assertThat(reservationJpaRepository.count()).isEqualTo(10)
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(10)
+        assertThat(memberPassJpaRepository.findAll()).allSatisfy { memberPass ->
+            assertThat(memberPass.remainingCount).isGreaterThanOrEqualTo(0)
+        }
+        assertThat(passUsageHistoryJpaRepository.count()).isEqualTo(10)
+        assertThat(outboxEventJpaRepository.count()).isEqualTo(10)
     }
 
     @Test
@@ -418,12 +426,13 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val classSession = saveClassSession(capacity = 2)
         saveMemberPass(member, remainingCount = 5)
 
-        val statuses = TestConcurrencyUtils.runConcurrently(
-            { postReservationStatus(token, member.id, classSession.id) },
-            { postReservationStatus(token, member.id, classSession.id) },
+        val results = TestConcurrencyUtils.runConcurrently(
+            { postReservationResult(token, member.id, classSession.id) },
+            { postReservationResult(token, member.id, classSession.id) },
         )
 
-        assertThat(statuses).containsExactlyInAnyOrder(201, 409)
+        assertThat(results.map { it.status }).containsExactlyInAnyOrder(201, 409)
+        assertThat(results.single { it.status == 409 }.code).isEqualTo("DUPLICATE_RESERVATION")
         assertThat(
             reservationJpaRepository.existsByMemberIdAndClassSessionIdAndStatus(
                 member.id,
@@ -461,11 +470,15 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         jsonPath("$.stackTrace") { doesNotExist() }
     }
 
-    private fun postReservationStatus(token: String, memberId: Long, classSessionId: Long): Int =
-        postReservation(token, memberId, classSessionId)
+    private fun postReservationResult(token: String, memberId: Long, classSessionId: Long): ReservationPostResult {
+        val response = postReservation(token, memberId, classSessionId)
             .andReturn()
             .response
-            .status
+        val code = response.contentAsString
+            .takeIf { it.isNotBlank() }
+            ?.let { objectMapper.readTree(it)["code"]?.asText() }
+        return ReservationPostResult(status = response.status, code = code)
+    }
 
     private fun assertNoReservationSideEffects(
         classSessionId: Long,
@@ -613,3 +626,8 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         const val RESERVATION_CREATE_TRACE_ID = "trace-reservation-create"
     }
 }
+
+private data class ReservationPostResult(
+    val status: Int,
+    val code: String?,
+)

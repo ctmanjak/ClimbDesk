@@ -22,4 +22,14 @@ class ErrorCodeStatusMapperTest {
         assertThat(ErrorCodeStatusMapper.statusOf(errorCode))
             .isEqualTo(HttpStatus.CONFLICT)
     }
+
+    @ParameterizedTest
+    @EnumSource(
+        value = ErrorCode::class,
+        names = ["DUPLICATE_RESERVATION", "RESERVATION_ALREADY_CANCELED", "MEMBER_PASS_VERSION_CONFLICT"],
+    )
+    fun `reservation concurrency conflicts map to conflict`(errorCode: ErrorCode) {
+        assertThat(ErrorCodeStatusMapper.statusOf(errorCode))
+            .isEqualTo(HttpStatus.CONFLICT)
+    }
 }

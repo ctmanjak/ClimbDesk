@@ -7,7 +7,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 object TestConcurrencyUtils {
-    fun runConcurrently(vararg requests: () -> Int): List<Int> {
+    fun <T> runConcurrently(vararg requests: () -> T): List<T> {
         val start = CountDownLatch(1)
         val executor = Executors.newFixedThreadPool(requests.size)
 
