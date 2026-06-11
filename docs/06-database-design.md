@@ -1005,6 +1005,8 @@ save(reservation)
 
 ## OutboxEventRepository
 
+MVP production code currently implements only `save(outboxEvent)`. Pending event retrieval and status transition methods are the contract for a future publisher/retry use case.
+
 ```plain text
 save(outboxEvent)
 findPendingEvents(limit)
@@ -1021,6 +1023,8 @@ order by next_retry_at asc nulls first, id asc
 limit :limit
 for update skip locked;
 ```
+
+Pending event retrieval is ordered by `next_retry_at asc nulls first, id asc`, matching `idx_outbox_events_pending`. It is not ordered by `occurred_at`.
 
 ---
 
