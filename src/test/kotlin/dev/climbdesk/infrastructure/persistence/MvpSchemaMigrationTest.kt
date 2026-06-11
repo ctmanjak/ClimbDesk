@@ -46,36 +46,138 @@ class MvpSchemaMigrationTest @Autowired constructor(
     }
 
     @Test
-    fun `flyway baseline creates m3 critical constraints and indexes`() {
-        val constraintNames = jdbcTemplate.queryForList(
+    fun `flyway baseline creates documented constraint inventory`() {
+        val constraints = jdbcTemplate.query(
             """
-            select conname
-            from pg_constraint
-            where connamespace = 'public'::regnamespace
+            select
+              c.conname,
+              t.relname as table_name,
+              c.contype
+            from pg_constraint c
+            join pg_class t on t.oid = c.conrelid
+            where c.connamespace = 'public'::regnamespace
+              and c.contype in ('c', 'f', 'u')
             """.trimIndent(),
-            String::class.java,
-        )
-        val indexNames = jdbcTemplate.queryForList(
-            """
-            select indexname
-            from pg_indexes
-            where schemaname = 'public'
-            """.trimIndent(),
-            String::class.java,
-        )
+        ) { rs, _ ->
+            ConstraintInventory(
+                name = rs.getString("conname"),
+                tableName = rs.getString("table_name"),
+                type = rs.getString("contype"),
+            )
+        }
 
-        assertThat(constraintNames).contains(
-            "ck_member_passes_count_range",
-            "fk_member_passes_member",
-            "fk_member_passes_pass_product",
-            "ck_class_sessions_reserved_count",
-            "fk_reservations_member_pass",
-            "ck_pass_usage_histories_changed_count",
+        assertThat(constraints).containsExactlyInAnyOrder(
+            ConstraintInventory("uk_admin_users_email", "admin_users", "u"),
+            ConstraintInventory("ck_admin_users_role", "admin_users", "c"),
+            ConstraintInventory("ck_admin_users_status", "admin_users", "c"),
+            ConstraintInventory("uk_members_phone", "members", "u"),
+            ConstraintInventory("ck_members_status", "members", "c"),
+            ConstraintInventory("ck_members_deactivated_at", "members", "c"),
+            ConstraintInventory("ck_pass_products_type", "pass_products", "c"),
+            ConstraintInventory("ck_pass_products_total_count", "pass_products", "c"),
+            ConstraintInventory("ck_pass_products_price", "pass_products", "c"),
+            ConstraintInventory("ck_pass_products_valid_days", "pass_products", "c"),
+            ConstraintInventory("ck_class_sessions_status", "class_sessions", "c"),
+            ConstraintInventory("ck_class_sessions_time_range", "class_sessions", "c"),
+            ConstraintInventory("ck_class_sessions_capacity", "class_sessions", "c"),
+            ConstraintInventory("ck_class_sessions_reserved_count", "class_sessions", "c"),
+            ConstraintInventory("ck_class_sessions_affected_reservation_count", "class_sessions", "c"),
+            ConstraintInventory("ck_class_sessions_cancel_fields", "class_sessions", "c"),
+            ConstraintInventory("fk_member_passes_member", "member_passes", "f"),
+            ConstraintInventory("fk_member_passes_pass_product", "member_passes", "f"),
+            ConstraintInventory("ck_member_passes_status", "member_passes", "c"),
+            ConstraintInventory("ck_member_passes_count_range", "member_passes", "c"),
+            ConstraintInventory("ck_member_passes_version", "member_passes", "c"),
+            ConstraintInventory("ck_member_passes_valid_days_snapshot", "member_passes", "c"),
+            ConstraintInventory("ck_member_passes_expires_after_issued", "member_passes", "c"),
+            ConstraintInventory("fk_reservations_member", "reservations", "f"),
+            ConstraintInventory("fk_reservations_class_session", "reservations", "f"),
+            ConstraintInventory("fk_reservations_member_pass", "reservations", "f"),
+            ConstraintInventory("ck_reservations_status", "reservations", "c"),
+            ConstraintInventory("ck_reservations_cancel_reason", "reservations", "c"),
+            ConstraintInventory("ck_reservations_cancel_fields", "reservations", "c"),
+            ConstraintInventory("fk_pass_usage_histories_member_pass", "pass_usage_histories", "f"),
+            ConstraintInventory("fk_pass_usage_histories_reservation", "pass_usage_histories", "f"),
+            ConstraintInventory("ck_pass_usage_histories_type", "pass_usage_histories", "c"),
+            ConstraintInventory("ck_pass_usage_histories_reason", "pass_usage_histories", "c"),
+            ConstraintInventory("ck_pass_usage_histories_changed_count", "pass_usage_histories", "c"),
+            ConstraintInventory("ck_pass_usage_histories_remaining_count_after", "pass_usage_histories", "c"),
+            ConstraintInventory("ck_outbox_events_status", "outbox_events", "c"),
+            ConstraintInventory("ck_outbox_events_retry_count", "outbox_events", "c"),
+            ConstraintInventory("ck_outbox_events_published_at", "outbox_events", "c"),
         )
-        assertThat(indexNames).contains(
-            "idx_member_passes_available_selection",
-            "uk_reservations_confirmed_member_class",
-            "idx_outbox_events_pending",
+    }
+
+    @Test
+    fun `flyway baseline creates documented supporting index inventory`() {
+        val indexes = jdbcTemplate.query(
+            """
+            select
+              ic.relname as index_name,
+              tc.relname as table_name,
+              i.indisunique,
+              pg_get_expr(i.indpred, i.indrelid) as predicate
+            from pg_index i
+            join pg_class ic on ic.oid = i.indexrelid
+            join pg_class tc on tc.oid = i.indrelid
+            join pg_namespace n on n.oid = tc.relnamespace
+            where n.nspname = 'public'
+              and tc.relname <> 'flyway_schema_history'
+              and not exists (
+                select 1
+                from pg_constraint c
+                where c.conindid = i.indexrelid
+              )
+            """.trimIndent(),
+        ) { rs, _ ->
+            IndexInventory(
+                name = rs.getString("index_name"),
+                tableName = rs.getString("table_name"),
+                isUnique = rs.getBoolean("indisunique"),
+                predicate = rs.getString("predicate"),
+            )
+        }
+
+        assertThat(indexes).containsExactlyInAnyOrder(
+            IndexInventory("idx_admin_users_status_role", "admin_users", false, null),
+            IndexInventory("idx_members_created_at_id", "members", false, null),
+            IndexInventory("idx_members_status", "members", false, null),
+            IndexInventory("idx_pass_products_created_at_id", "pass_products", false, null),
+            IndexInventory("idx_class_sessions_starts_at_id", "class_sessions", false, null),
+            IndexInventory("idx_class_sessions_status_starts_at", "class_sessions", false, null),
+            IndexInventory("idx_member_passes_member_id", "member_passes", false, null),
+            IndexInventory("idx_member_passes_member_status", "member_passes", false, null),
+            IndexInventory(
+                "idx_member_passes_available_selection",
+                "member_passes",
+                false,
+                "(((status)::text = 'ACTIVE'::text) AND (remaining_count > 0))",
+            ),
+            IndexInventory(
+                "uk_reservations_confirmed_member_class",
+                "reservations",
+                true,
+                "((status)::text = 'CONFIRMED'::text)",
+            ),
+            IndexInventory("idx_reservations_member_reserved_at", "reservations", false, null),
+            IndexInventory("idx_reservations_class_session_status", "reservations", false, null),
+            IndexInventory("idx_reservations_member_pass_id", "reservations", false, null),
+            IndexInventory("idx_reservations_status_reserved_at", "reservations", false, null),
+            IndexInventory(
+                "idx_pass_usage_histories_member_pass_created_at",
+                "pass_usage_histories",
+                false,
+                null,
+            ),
+            IndexInventory("idx_pass_usage_histories_reservation_id", "pass_usage_histories", false, null),
+            IndexInventory(
+                "idx_outbox_events_pending",
+                "outbox_events",
+                false,
+                "((status)::text = ANY ((ARRAY['PENDING'::character varying, 'FAILED'::character varying])::text[]))",
+            ),
+            IndexInventory("idx_outbox_events_aggregate", "outbox_events", false, null),
+            IndexInventory("idx_outbox_events_occurred_at", "outbox_events", false, null),
         )
     }
 
@@ -568,5 +670,18 @@ class MvpSchemaMigrationTest @Autowired constructor(
         val memberId: Long,
         val classSessionId: Long,
         val memberPassId: Long,
+    )
+
+    private data class ConstraintInventory(
+        val name: String,
+        val tableName: String,
+        val type: String,
+    )
+
+    private data class IndexInventory(
+        val name: String,
+        val tableName: String,
+        val isUnique: Boolean,
+        val predicate: String?,
     )
 }
