@@ -354,7 +354,7 @@ OutboxEvent ClassSessionCanceledEvent 기록
 ## OutboxEventRepository
 
 - OutboxEvent payload가 jsonb로 저장된다.
-- pending event 조회는 occurredAt/id 기준으로 안정적으로 정렬된다.
+- pending event 조회는 `nextRetryAt asc nulls first, id asc` 기준으로 안정적으로 정렬된다.
 - status check constraint가 동작한다.
 
 ---
@@ -521,7 +521,7 @@ OutboxEvent 저장 안 됨
 - 실패한 유스케이스는 OutboxEvent를 남기지 않는다.
 - OutboxEvent payload는 aggregateId, memberId, classSessionId, memberPassId, occurredAt 등 이벤트별 필수 값을 포함한다.
 - OutboxEvent status 초기값은 PENDING이다.
-- pending event 조회는 오래된 이벤트부터 안정적으로 반환한다.
+- pending event 조회는 `nextRetryAt asc nulls first, id asc` 기준으로 안정적으로 반환한다.
 - 실제 SQS/Kafka 발행 성공 여부, 외부 메시지 idempotency, publisher retry/backoff는 MVP에서 테스트하지 않는다.
 
 ---

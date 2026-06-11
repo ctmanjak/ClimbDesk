@@ -71,15 +71,15 @@ Existing audits already cover reservation workflow transaction/concurrency gaps,
 - Recommended action: Keep these tests. Do not duplicate them in the migration test.
 - Risk and effort estimate: Low risk, no immediate implementation effort.
 
-### F-06: Outbox pending retrieval contract is inconsistent and not implemented
+### F-06: Outbox pending retrieval contract was inconsistent and is not implemented
 
 - Category: `Doc drift`
 - Source document reference: `docs/06-database-design.md:663`, `docs/07-test-strategy.md:354`, `docs/07-test-strategy.md:512`
 - Code or test reference: `src/main/resources/db/migration/V1__create_mvp_schema.sql:214`, `src/main/kotlin/dev/climbdesk/event/infrastructure/persistence/OutboxEventJpaRepository.kt:1`, `src/test/kotlin/dev/climbdesk/event/infrastructure/persistence/OutboxEventPersistenceAdapterIntegrationTest.kt:51`
-- Current behavior: The migration creates `idx_outbox_events_pending` on `(status, next_retry_at asc nulls first, id asc)` for `PENDING` and `FAILED` rows. Test Strategy says pending event lookup should be stable by `occurredAt/id`, but no production repository method currently reads pending events.
-- Expected behavior: Either the pending retrieval ordering should be documented as `next_retry_at/id`, or a future publisher/retry use case should explicitly introduce and test the desired query.
-- Impact: No current MVP write-path bug is confirmed, because the application only records outbox events. The drift could mislead future outbox publisher work.
-- Recommended action: Create a documentation follow-up to resolve the outbox pending retrieval contract before implementing a publisher.
+- Current behavior: The migration creates `idx_outbox_events_pending` on `(status, next_retry_at asc nulls first, id asc)` for `PENDING` and `FAILED` rows. No production repository method currently reads pending events.
+- Expected behavior: Pending retrieval ordering should be documented as `next_retry_at/id`, and publisher/retry implementation and tests should remain deferred until a future use case exists.
+- Impact: No current MVP write-path bug is confirmed, because the application only records outbox events.
+- Recommended action: Completed by aligning Database Design and Test Strategy to `next_retry_at/id` and keeping publisher/retry implementation out of MVP.
 - Risk and effort estimate: Low current production risk, low documentation effort.
 
 ## Follow-up Ticket Recommendations
@@ -96,8 +96,8 @@ Existing audits already cover reservation workflow transaction/concurrency gaps,
    - Goal: Update Database Design snippets for member deactivation fields, class-session cancel fields, and outbox published fields to match the migration and migration tests.
    - Acceptance: The document no longer implies that the migration should allow active members with `deactivated_at`, non-canceled class sessions with cancel fields, or non-published outbox events with `published_at`.
 
-4. Resolve outbox pending retrieval ordering contract.
-   - Goal: Decide whether future pending outbox reads are ordered by `next_retry_at/id` or `occurred_at/id`.
+4. Resolve outbox pending retrieval ordering contract. Completed on 2026-06-11.
+   - Goal: Future pending outbox reads are ordered by `next_retry_at/id`, matching `idx_outbox_events_pending`.
    - Acceptance: Database Design and Test Strategy agree, and implementation/test work is deferred until a publisher/retry use case exists.
 
 ## Audit Conclusion
