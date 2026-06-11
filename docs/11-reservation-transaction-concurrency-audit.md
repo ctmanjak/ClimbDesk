@@ -82,6 +82,17 @@ pessimistic lock 실패 처리도 MVC exception mapping 경계에서 mocked serv
 - Recommended action: 그대로 유지한다.
 - Risk and effort estimate: 낮은 risk, 즉시 필요한 구현 effort 없음.
 
+### F-07: 예약 취소와 예약 생성 동시 실행 커버리지가 없음
+
+- Category: `Missing test`
+- Source document reference: `docs/07-test-strategy.md`, CT-05는 예약 취소와 예약 생성 동시 실행 후 `reservedCount <= capacity`, `CONFIRMED Reservation count`와 `reservedCount` 일치, 사용 이력 일관성 검증을 요구한다.
+- Code or test reference: `src/test/kotlin/dev/climbdesk/reservation/presentation/ReservationCancellationIntegrationTest.kt:264`, `src/test/kotlin/dev/climbdesk/reservation/presentation/ReservationCreationIntegrationTest.kt:394`, `src/test/kotlin/dev/climbdesk/classsession/presentation/ClassSessionCancellationIntegrationTest.kt:212`
+- Current behavior: 현재 동시성 테스트는 정원 초과 예약, 중복 예약, 같은 예약 취소 2회, 수업 취소와 예약 생성 race를 검증한다. 하지만 한 수업에서 기존 예약 취소와 새 예약 생성이 동시에 실행되는 CT-05 시나리오는 별도 테스트로 검증하지 않는다.
+- Expected behavior: PostgreSQL Testcontainers 기반 테스트가 예약 취소 요청과 새 예약 생성 요청을 동시에 실행하고, 최종 `reservedCount`, `CONFIRMED` 예약 수, `MemberPass` 차감/복구, `PassUsageHistory`, `OutboxEvent`가 committed 결과와 일치하는지 검증해야 한다.
+- Impact: 문서화된 동시성 invariant 중 하나가 자동화 증거 없이 남아 있다. 현재 확인된 production bug는 아니지만, reservation cancel/create race 회귀를 CI에서 직접 차단하지 못한다.
+- Recommended action: CT-05 DB-backed 동시성 테스트를 추가하는 follow-up 티켓을 만든다.
+- Risk and effort estimate: 중간 risk, 중간 effort. 동시 성공/실패 결과가 타이밍에 따라 달라질 수 있으므로 최종 invariant 중심 assertion이 필요하다.
+
 ## Follow-up 티켓 권고
 
 1. DB-backed 예약 workflow optimistic lock conflict 커버리지 추가.
@@ -92,6 +103,10 @@ pessimistic lock 실패 처리도 MVC exception mapping 경계에서 mocked serv
    - Goal: `class_sessions` 또는 `reservations`에 `FOR UPDATE` lock을 잡은 상태에서 짧은 lock timeout으로 예약 API/service 경로를 실행하고 `CONCURRENCY_CONFLICT`를 검증한다.
    - Acceptance: Testcontainers, 독립 트랜잭션, deterministic latch, 최종 DB 상태 assertion을 사용한다.
 
+3. 예약 취소와 예약 생성 동시 실행 CT-05 커버리지 추가.
+   - Goal: 같은 수업에서 기존 CONFIRMED 예약 취소와 새 예약 생성을 동시에 실행해 최종 예약 수, `reservedCount`, 이용권 차감/복구 이력, outbox event가 일관적인지 검증한다.
+   - Acceptance: Testcontainers, 독립 트랜잭션, final-state assertion을 사용하고 타이밍 의존적인 특정 승패 조합에 과도하게 의존하지 않는다.
+
 ## 감사 결론
 
-이번 감사에서 production bug는 확인되지 않았다. 현재 suite는 정원 초과, 중복 예약, outbox rollback, MemberPass repository optimistic locking, class-session-cancel race invariant에 대해 강한 증거를 갖고 있다. 다만 workflow 레벨의 실제 DB optimistic lock conflict와 실제 DB pessimistic lock failure handling은 증거가 부족하므로 follow-up 테스트가 필요하다.
+이번 감사에서 production bug는 확인되지 않았다. 현재 suite는 정원 초과, 중복 예약, outbox rollback, MemberPass repository optimistic locking, class-session-cancel race invariant에 대해 강한 증거를 갖고 있다. 다만 workflow 레벨의 실제 DB optimistic lock conflict, 실제 DB pessimistic lock failure handling, 예약 취소와 예약 생성 동시 실행 CT-05는 증거가 부족하므로 follow-up 테스트가 필요하다.
