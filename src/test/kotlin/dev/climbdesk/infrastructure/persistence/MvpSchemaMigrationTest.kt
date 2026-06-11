@@ -116,6 +116,18 @@ class MvpSchemaMigrationTest @Autowired constructor(
               ic.relname as index_name,
               tc.relname as table_name,
               i.indisunique,
+              array(
+                select
+                  a.attname
+                  || case when (key_option.option & 1) = 1 then ' DESC' else '' end
+                  || case when (key_option.option & 2) = 2 then ' NULLS FIRST' else '' end
+                from unnest(i.indkey) with ordinality as key_position(attnum, ordinality)
+                join unnest(i.indoption) with ordinality as key_option(option, ordinality)
+                  on key_option.ordinality = key_position.ordinality
+                join pg_attribute a on a.attrelid = i.indrelid and a.attnum = key_position.attnum
+                where key_position.attnum <> 0
+                order by key_position.ordinality
+              ) as key_columns,
               pg_get_expr(i.indpred, i.indrelid) as predicate
             from pg_index i
             join pg_class ic on ic.oid = i.indexrelid
@@ -134,50 +146,97 @@ class MvpSchemaMigrationTest @Autowired constructor(
                 name = rs.getString("index_name"),
                 tableName = rs.getString("table_name"),
                 isUnique = rs.getBoolean("indisunique"),
+                keyColumns = (rs.getArray("key_columns").array as Array<*>).map { it as String },
                 predicate = rs.getString("predicate"),
             )
         }
 
         assertThat(indexes).containsExactlyInAnyOrder(
-            IndexInventory("idx_admin_users_status_role", "admin_users", false, null),
-            IndexInventory("idx_members_created_at_id", "members", false, null),
-            IndexInventory("idx_members_status", "members", false, null),
-            IndexInventory("idx_pass_products_created_at_id", "pass_products", false, null),
-            IndexInventory("idx_class_sessions_starts_at_id", "class_sessions", false, null),
-            IndexInventory("idx_class_sessions_status_starts_at", "class_sessions", false, null),
-            IndexInventory("idx_member_passes_member_id", "member_passes", false, null),
-            IndexInventory("idx_member_passes_member_status", "member_passes", false, null),
-            IndexInventory(
+            index("idx_admin_users_status_role", "admin_users", listOf("status", "role")),
+            index(
+                "idx_members_created_at_id",
+                "members",
+                listOf("created_at DESC NULLS FIRST", "id DESC NULLS FIRST"),
+            ),
+            index("idx_members_status", "members", listOf("status")),
+            index(
+                "idx_pass_products_created_at_id",
+                "pass_products",
+                listOf("created_at DESC NULLS FIRST", "id DESC NULLS FIRST"),
+            ),
+            index(
+                "idx_class_sessions_starts_at_id",
+                "class_sessions",
+                listOf("starts_at DESC NULLS FIRST", "id DESC NULLS FIRST"),
+            ),
+            index(
+                "idx_class_sessions_status_starts_at",
+                "class_sessions",
+                listOf("status", "starts_at"),
+            ),
+            index("idx_member_passes_member_id", "member_passes", listOf("member_id")),
+            index(
+                "idx_member_passes_member_status",
+                "member_passes",
+                listOf("member_id", "status"),
+            ),
+            index(
                 "idx_member_passes_available_selection",
                 "member_passes",
-                false,
-                "(((status)::text = 'ACTIVE'::text) AND (remaining_count > 0))",
+                listOf("member_id", "status", "expires_at", "issued_at", "id"),
+                predicate = "(((status)::text = 'ACTIVE'::text) AND (remaining_count > 0))",
             ),
-            IndexInventory(
+            index(
                 "uk_reservations_confirmed_member_class",
                 "reservations",
-                true,
-                "((status)::text = 'CONFIRMED'::text)",
+                listOf("member_id", "class_session_id"),
+                isUnique = true,
+                predicate = "((status)::text = 'CONFIRMED'::text)",
             ),
-            IndexInventory("idx_reservations_member_reserved_at", "reservations", false, null),
-            IndexInventory("idx_reservations_class_session_status", "reservations", false, null),
-            IndexInventory("idx_reservations_member_pass_id", "reservations", false, null),
-            IndexInventory("idx_reservations_status_reserved_at", "reservations", false, null),
-            IndexInventory(
+            index(
+                "idx_reservations_member_reserved_at",
+                "reservations",
+                listOf("member_id", "reserved_at DESC NULLS FIRST", "id DESC NULLS FIRST"),
+            ),
+            index(
+                "idx_reservations_class_session_status",
+                "reservations",
+                listOf("class_session_id", "status"),
+            ),
+            index("idx_reservations_member_pass_id", "reservations", listOf("member_pass_id")),
+            index(
+                "idx_reservations_status_reserved_at",
+                "reservations",
+                listOf("status", "reserved_at DESC NULLS FIRST"),
+            ),
+            index(
                 "idx_pass_usage_histories_member_pass_created_at",
                 "pass_usage_histories",
-                false,
-                null,
+                listOf("member_pass_id", "created_at DESC NULLS FIRST", "id DESC NULLS FIRST"),
             ),
-            IndexInventory("idx_pass_usage_histories_reservation_id", "pass_usage_histories", false, null),
-            IndexInventory(
+            index(
+                "idx_pass_usage_histories_reservation_id",
+                "pass_usage_histories",
+                listOf("reservation_id"),
+            ),
+            index(
                 "idx_outbox_events_pending",
                 "outbox_events",
-                false,
-                "((status)::text = ANY ((ARRAY['PENDING'::character varying, 'FAILED'::character varying])::text[]))",
+                listOf("status", "next_retry_at NULLS FIRST", "id"),
+                predicate = """
+                    ((status)::text = ANY ((ARRAY['PENDING'::character varying, 'FAILED'::character varying])::text[]))
+                """.trimIndent(),
             ),
-            IndexInventory("idx_outbox_events_aggregate", "outbox_events", false, null),
-            IndexInventory("idx_outbox_events_occurred_at", "outbox_events", false, null),
+            index(
+                "idx_outbox_events_aggregate",
+                "outbox_events",
+                listOf("aggregate_type", "aggregate_id"),
+            ),
+            index(
+                "idx_outbox_events_occurred_at",
+                "outbox_events",
+                listOf("occurred_at DESC NULLS FIRST", "id DESC NULLS FIRST"),
+            ),
         )
     }
 
@@ -682,6 +741,22 @@ class MvpSchemaMigrationTest @Autowired constructor(
         val name: String,
         val tableName: String,
         val isUnique: Boolean,
+        val keyColumns: List<String>,
         val predicate: String?,
     )
+
+    private fun index(
+        name: String,
+        tableName: String,
+        keyColumns: List<String>,
+        isUnique: Boolean = false,
+        predicate: String? = null,
+    ): IndexInventory =
+        IndexInventory(
+            name = name,
+            tableName = tableName,
+            isUnique = isUnique,
+            keyColumns = keyColumns,
+            predicate = predicate,
+        )
 }
