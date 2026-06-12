@@ -24,9 +24,12 @@ import dev.climbdesk.pass.infrastructure.persistence.MemberPassJpaRepository
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaEntity
 import dev.climbdesk.pass.infrastructure.persistence.PassProductJpaRepository
 import dev.climbdesk.pass.infrastructure.persistence.PassUsageHistoryJpaRepository
+import dev.climbdesk.reservation.application.CreateReservationCommand
+import dev.climbdesk.reservation.application.ReservationApplicationService
 import dev.climbdesk.reservation.domain.ReservationStatus
 import dev.climbdesk.reservation.infrastructure.persistence.ReservationJpaRepository
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -35,15 +38,23 @@ import org.junit.jupiter.params.provider.EnumSource
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.dao.PessimisticLockingFailureException
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.post
 import org.testcontainers.junit.jupiter.Testcontainers
 import java.sql.Timestamp
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import javax.sql.DataSource
 
 @Testcontainers(disabledWithoutDocker = true)
 @SpringBootTest(
@@ -59,6 +70,9 @@ import java.util.concurrent.atomic.AtomicInteger
 class ReservationCreationIntegrationTest @Autowired constructor(
     private val mockMvc: MockMvc,
     private val objectMapper: ObjectMapper,
+    private val reservationApplicationService: ReservationApplicationService,
+    private val transactionManager: PlatformTransactionManager,
+    private val dataSource: DataSource,
     private val adminUserJpaRepository: AdminUserJpaRepository,
     private val memberJpaRepository: MemberJpaRepository,
     private val passProductJpaRepository: PassProductJpaRepository,
@@ -447,6 +461,61 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
     }
 
+    @Test
+    fun `reservation creation lock timeout on class session row fails without side effects`() {
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val classSession = saveClassSession()
+        val memberPass = saveMemberPass(member, remainingCount = 10)
+
+        holdRowLock(Table.CLASS_SESSIONS, classSession.id).use {
+            assertThatThrownBy {
+                runWithShortLockTimeout {
+                    reservationApplicationService.reserveClass(
+                        CreateReservationCommand(memberId = member.id, classSessionId = classSession.id),
+                    )
+                }
+            }.isInstanceOf(PessimisticLockingFailureException::class.java)
+        }
+
+        assertThat(reservationJpaRepository.count()).isZero()
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isZero()
+        memberPassJpaRepository.findById(memberPass.id).orElseThrow().also { savedMemberPass ->
+            assertThat(savedMemberPass.remainingCount).isEqualTo(10)
+            assertThat(savedMemberPass.version).isEqualTo(memberPass.version)
+        }
+        assertThat(passUsageHistoryJpaRepository.count()).isZero()
+        assertThat(outboxEventJpaRepository.count()).isZero()
+    }
+
+    @Test
+    fun `reservation cancellation lock timeout on reservation row fails without side effects`() {
+        val member = saveMember(status = MemberStatus.ACTIVE)
+        val classSession = saveClassSession(reservedCount = 1)
+        val memberPass = saveMemberPass(member, remainingCount = 9)
+        val reservationId = insertReservation(member.id, classSession.id, memberPass.id, ReservationStatus.CONFIRMED)
+
+        holdRowLock(Table.RESERVATIONS, reservationId).use {
+            assertThatThrownBy {
+                runWithShortLockTimeout {
+                    reservationApplicationService.cancelReservation(reservationId)
+                }
+            }.isInstanceOf(PessimisticLockingFailureException::class.java)
+        }
+
+        reservationJpaRepository.findById(reservationId).orElseThrow().also { reservation ->
+            assertThat(reservation.status).isEqualTo(ReservationStatus.CONFIRMED)
+            assertThat(reservation.canceledAt).isNull()
+            assertThat(reservation.cancelReason).isNull()
+        }
+        assertThat(classSessionJpaRepository.findById(classSession.id).orElseThrow().reservedCount).isEqualTo(1)
+        memberPassJpaRepository.findById(memberPass.id).orElseThrow().also { savedMemberPass ->
+            assertThat(savedMemberPass.remainingCount).isEqualTo(9)
+            assertThat(savedMemberPass.version).isEqualTo(memberPass.version)
+        }
+        assertThat(passUsageHistoryJpaRepository.count()).isZero()
+        assertThat(outboxEventJpaRepository.count()).isZero()
+    }
+
     private fun postReservation(token: String, memberId: Long, classSessionId: Long) =
         mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
@@ -493,6 +562,52 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         memberPassId?.let {
             assertThat(memberPassJpaRepository.findById(it).orElseThrow().remainingCount).isEqualTo(10)
         }
+    }
+
+    private fun runWithShortLockTimeout(operation: () -> Unit) {
+        TransactionTemplate(transactionManager).apply {
+            propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+        }.executeWithoutResult {
+            jdbcTemplate.execute("set local lock_timeout = '200ms'")
+            operation()
+        }
+    }
+
+    private fun holdRowLock(table: Table, rowId: Long): HeldRowLock {
+        val locked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>()
+
+        Thread {
+            try {
+                dataSource.connection.use { connection ->
+                    connection.autoCommit = false
+                    connection.prepareStatement("select id from ${table.tableName} where id = ? for update").use { statement ->
+                        statement.setLong(1, rowId)
+                        statement.executeQuery().use { resultSet ->
+                            check(resultSet.next()) { "No ${table.tableName} row found for id $rowId." }
+                        }
+                    }
+                    locked.countDown()
+                    check(release.await(5, TimeUnit.SECONDS)) { "Timed out waiting to release row lock." }
+                    connection.rollback()
+                }
+            } catch (throwable: Throwable) {
+                failure.set(throwable)
+                locked.countDown()
+            } finally {
+                finished.countDown()
+            }
+        }.apply {
+            name = "reservation-lock-holder-${table.tableName}-$rowId"
+            start()
+        }
+
+        assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue()
+        failure.get()?.let { throw AssertionError("Failed to acquire ${table.tableName} row lock.", it) }
+
+        return HeldRowLock(release = release, finished = finished, failure = failure)
     }
 
     private fun saveMember(
@@ -624,6 +739,23 @@ class ReservationCreationIntegrationTest @Autowired constructor(
     private companion object {
         val memberSequence = AtomicInteger(10000000)
         const val RESERVATION_CREATE_TRACE_ID = "trace-reservation-create"
+    }
+
+    private enum class Table(val tableName: String) {
+        CLASS_SESSIONS("class_sessions"),
+        RESERVATIONS("reservations"),
+    }
+
+    private class HeldRowLock(
+        private val release: CountDownLatch,
+        private val finished: CountDownLatch,
+        private val failure: AtomicReference<Throwable?>,
+    ) : AutoCloseable {
+        override fun close() {
+            release.countDown()
+            assertThat(finished.await(5, TimeUnit.SECONDS)).isTrue()
+            failure.get()?.let { throw AssertionError("Row lock holder failed.", it) }
+        }
     }
 }
 
