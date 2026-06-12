@@ -8,6 +8,9 @@ import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabas
 import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest
 import org.springframework.dao.DataAccessException
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.support.TransactionTemplate
 import org.testcontainers.junit.jupiter.Testcontainers
 
 @Testcontainers(disabledWithoutDocker = true)
@@ -20,7 +23,12 @@ import org.testcontainers.junit.jupiter.Testcontainers
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 class MvpSchemaMigrationTest @Autowired constructor(
     private val jdbcTemplate: JdbcTemplate,
+    transactionManager: PlatformTransactionManager,
 ) {
+    private val constraintViolationTransaction = TransactionTemplate(transactionManager).apply {
+        propagationBehavior = TransactionDefinition.PROPAGATION_REQUIRES_NEW
+    }
+
     @Test
     fun `flyway baseline creates all mvp tables`() {
         val tableNames = jdbcTemplate.queryForList(
@@ -251,14 +259,18 @@ class MvpSchemaMigrationTest @Autowired constructor(
             ),
         ).isEqualTo(1)
 
-        assertThatThrownBy {
-            jdbcTemplate.update(
-                """
-                insert into members (name, phone, status, created_at, updated_at, deactivated_at)
-                values ('Invalid Active Member', '010-0000-0002', 'ACTIVE', now(), now(), now())
-                """.trimIndent(),
-            )
-        }.isInstanceOf(DataAccessException::class.java)
+        assertConstraintRejects(
+            """
+            insert into members (name, phone, status, created_at, updated_at, deactivated_at)
+            values ('Invalid Active Member', '010-0000-0002', 'ACTIVE', now(), now(), now())
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into members (name, phone, status, created_at, updated_at)
+            values ('Invalid Inactive Member', '010-0000-0004', 'INACTIVE', now(), now())
+            """,
+        )
     }
 
     @Test
@@ -298,7 +310,32 @@ class MvpSchemaMigrationTest @Autowired constructor(
             )
             values (
               $memberId, $passProductId, 'Count Pass', 'COUNT_PASS',
+              10, 10, 'SUSPENDED', now(), 0, now(), now()
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into member_passes (
+              member_id, pass_product_id, product_name_snapshot, pass_type_snapshot,
+              total_count, remaining_count, status, issued_at, version, created_at, updated_at
+            )
+            values (
+              $memberId, $passProductId, 'Count Pass', 'COUNT_PASS',
               10, -1, 'ACTIVE', now(), 0, now(), now()
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into member_passes (
+              member_id, pass_product_id, product_name_snapshot, pass_type_snapshot,
+              total_count, remaining_count, status, issued_at, version, valid_days_snapshot,
+              created_at, updated_at
+            )
+            values (
+              $memberId, $passProductId, 'Count Pass', 'COUNT_PASS',
+              10, 10, 'ACTIVE', now(), 0, 0, now(), now()
             )
             """,
         )
@@ -364,6 +401,18 @@ class MvpSchemaMigrationTest @Autowired constructor(
               created_at, updated_at
             )
             values (
+              'Invalid Status Class', now(), now() + interval '1 hour', 10, 0, 'DRAFT',
+              now(), now()
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into class_sessions (
+              title, starts_at, ends_at, capacity, reserved_count, status,
+              created_at, updated_at
+            )
+            values (
               'Invalid Capacity Class', now(), now() + interval '1 hour', 0, 0, 'OPEN',
               now(), now()
             )
@@ -393,6 +442,18 @@ class MvpSchemaMigrationTest @Autowired constructor(
             )
             """,
         )
+        assertConstraintRejects(
+            """
+            insert into class_sessions (
+              title, starts_at, ends_at, capacity, reserved_count, status,
+              affected_reservation_count, created_at, updated_at
+            )
+            values (
+              'Invalid Affected Count Class', now(), now() + interval '1 hour', 10, 0, 'OPEN',
+              -1, now(), now()
+            )
+            """,
+        )
     }
 
     @Test
@@ -412,20 +473,30 @@ class MvpSchemaMigrationTest @Autowired constructor(
             ),
         ).isEqualTo(1)
 
-        assertThatThrownBy {
-            jdbcTemplate.update(
-                """
-                insert into class_sessions (
-                  title, starts_at, ends_at, capacity, reserved_count, status,
-                  created_at, updated_at, canceled_at, cancel_reason
-                )
-                values (
-                  'Invalid Open Class', now(), now() + interval '1 hour', 10, 0, 'OPEN',
-                  now(), now(), now(), 'not canceled'
-                )
-                """.trimIndent(),
+        assertConstraintRejects(
+            """
+            insert into class_sessions (
+              title, starts_at, ends_at, capacity, reserved_count, status,
+              created_at, updated_at, canceled_at, cancel_reason
             )
-        }.isInstanceOf(DataAccessException::class.java)
+            values (
+              'Invalid Open Class', now(), now() + interval '1 hour', 10, 0, 'OPEN',
+              now(), now(), now(), 'not canceled'
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into class_sessions (
+              title, starts_at, ends_at, capacity, reserved_count, status,
+              canceled_at, created_at, updated_at
+            )
+            values (
+              'Invalid Canceled Class', now(), now() + interval '1 hour', 10, 0, 'CANCELED',
+              now(), now(), now()
+            )
+            """,
+        )
     }
 
     @Test
@@ -454,11 +525,37 @@ class MvpSchemaMigrationTest @Autowired constructor(
             """
             insert into reservations (
               member_id, class_session_id, member_pass_id, status, reserved_at,
+              cancel_reason, created_at, updated_at
+            )
+            values (
+              ${confirmedConstraintIds.memberId},
+              ${confirmedConstraintIds.classSessionId},
+              ${confirmedConstraintIds.memberPassId},
+              'CONFIRMED', now(), 'USER_REQUESTED', now(), now()
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into reservations (
+              member_id, class_session_id, member_pass_id, status, reserved_at,
               canceled_at, created_at, updated_at
             )
             values (
               ${reservationIds.memberId}, ${reservationIds.classSessionId}, ${reservationIds.memberPassId},
               'CANCELED', now(), now(), now(), now()
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into reservations (
+              member_id, class_session_id, member_pass_id, status, reserved_at,
+              cancel_reason, created_at, updated_at
+            )
+            values (
+              ${reservationIds.memberId}, ${reservationIds.classSessionId}, ${reservationIds.memberPassId},
+              'CANCELED', now(), 'USER_REQUESTED', now(), now()
             )
             """,
         )
@@ -550,20 +647,30 @@ class MvpSchemaMigrationTest @Autowired constructor(
             ),
         ).isEqualTo(1)
 
-        assertThatThrownBy {
-            jdbcTemplate.update(
-                """
-                insert into outbox_events (
-                  event_type, aggregate_type, aggregate_id, payload, status, retry_count,
-                  occurred_at, published_at, created_at, updated_at
-                )
-                values (
-                  'InvalidEvent', 'TestAggregate', 1, '{}'::jsonb, 'PENDING', 0,
-                  now(), now(), now(), now()
-                )
-                """.trimIndent(),
+        assertConstraintRejects(
+            """
+            insert into outbox_events (
+              event_type, aggregate_type, aggregate_id, payload, status, retry_count,
+              occurred_at, published_at, created_at, updated_at
             )
-        }.isInstanceOf(DataAccessException::class.java)
+            values (
+              'InvalidEvent', 'TestAggregate', 1, '{}'::jsonb, 'PENDING', 0,
+              now(), now(), now(), now()
+            )
+            """,
+        )
+        assertConstraintRejects(
+            """
+            insert into outbox_events (
+              event_type, aggregate_type, aggregate_id, payload, status, retry_count,
+              occurred_at, created_at, updated_at
+            )
+            values (
+              'InvalidPublishedEvent', 'TestAggregate', 1, '{}'::jsonb, 'PUBLISHED', 0,
+              now(), now(), now()
+            )
+            """,
+        )
     }
 
     @Test
@@ -598,8 +705,12 @@ class MvpSchemaMigrationTest @Autowired constructor(
 
     private fun assertConstraintRejects(sql: String) {
         assertThatThrownBy {
-            jdbcTemplate.update(sql.trimIndent())
-        }.isInstanceOf(DataAccessException::class.java)
+            constraintViolationTransaction.executeWithoutResult {
+                jdbcTemplate.update(sql.trimIndent())
+            }
+        }
+            .isInstanceOf(DataAccessException::class.java)
+            .hasMessageContaining("violates check constraint")
     }
 
     private fun insertReservationFixtures(): ReservationFixtureIds {
