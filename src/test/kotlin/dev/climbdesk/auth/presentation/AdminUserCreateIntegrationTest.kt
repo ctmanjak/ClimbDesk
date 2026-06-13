@@ -133,6 +133,56 @@ class AdminUserCreateIntegrationTest @Autowired constructor(
     }
 
     @Test
+    fun `staff cannot activate admin user`() {
+        val staffToken = accessTokenFor("staff@climbdesk.local", AdminUserRole.STAFF)
+        val target = adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "target@climbdesk.local",
+                passwordHash = Pbkdf2PasswordVerifier.encode("password1234"),
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.INACTIVE,
+            ),
+        )
+
+        mockMvc.patch("/api/v1/admin-users/${target.id}/activate") {
+            header("Authorization", "Bearer $staffToken")
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.status") { value(403) }
+            jsonPath("$.code") { value("FORBIDDEN") }
+            jsonPath("$.path") { value("/api/v1/admin-users/${target.id}/activate") }
+        }
+
+        assertThat(adminUserJpaRepository.findById(target.id).orElseThrow().status)
+            .isEqualTo(AdminUserStatus.INACTIVE)
+    }
+
+    @Test
+    fun `staff cannot deactivate admin user`() {
+        val staffToken = accessTokenFor("staff@climbdesk.local", AdminUserRole.STAFF)
+        val target = adminUserJpaRepository.saveAndFlush(
+            AdminUserJpaEntity(
+                email = "target@climbdesk.local",
+                passwordHash = Pbkdf2PasswordVerifier.encode("password1234"),
+                role = AdminUserRole.STAFF,
+                status = AdminUserStatus.ACTIVE,
+            ),
+        )
+
+        mockMvc.patch("/api/v1/admin-users/${target.id}/deactivate") {
+            header("Authorization", "Bearer $staffToken")
+        }.andExpect {
+            status { isForbidden() }
+            jsonPath("$.status") { value(403) }
+            jsonPath("$.code") { value("FORBIDDEN") }
+            jsonPath("$.path") { value("/api/v1/admin-users/${target.id}/deactivate") }
+        }
+
+        assertThat(adminUserJpaRepository.findById(target.id).orElseThrow().status)
+            .isEqualTo(AdminUserStatus.ACTIVE)
+    }
+
+    @Test
     fun `manager can activate and deactivate admin user`() {
         val managerToken = accessTokenFor("manager@climbdesk.local", AdminUserRole.MANAGER)
         val staff = adminUserJpaRepository.saveAndFlush(
