@@ -912,7 +912,7 @@ CreateReservationRequest
 
 ## OD-02. Member activate API 포함 여부
 
-Functional Spec에는 Member 상태 전이에 `INACTIVE -> ACTIVE`가 존재하지만, MVP 기능 목록은 회원 비활성화 중심이다. v0.1 API에서는 activate endpoint를 제외한다.
+Member reactivation(`INACTIVE -> ACTIVE`)은 MVP public use case가 아니다. v0.1 API에서는 activate endpoint를 제외하며, 향후 필요하면 product decision으로 API와 권한 정책을 먼저 정의한다.
 
 ## OD-03. ClassSession close API 포함 여부
 
