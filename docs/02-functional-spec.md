@@ -511,9 +511,11 @@ validDays(optional)
 ## Member
 
 ```plain text
-ACTIVE -> INACTIVE
-INACTIVE -> ACTIVE
+ACTIVE -> INACTIVE    deactivate
 ```
+
+`INACTIVE -> ACTIVE` 회원 재활성화는 MVP public use case/API에 포함하지 않는다.
+필요해지면 별도 product decision으로 API와 권한 정책을 먼저 정의한 뒤 구현한다.
 
 ## MemberPass
 

@@ -13,7 +13,7 @@ Follow the root `AGENTS.md` first for AI execution discipline, then `PROJECT_RUL
 
 The following areas require tests:
 
-- Member activation/deactivation rules
+- Member creation, deactivation, and active eligibility rules
 - AdminUser login eligibility and role rules
 - PassProduct creation rules
 - MemberPass consume/restore rules
