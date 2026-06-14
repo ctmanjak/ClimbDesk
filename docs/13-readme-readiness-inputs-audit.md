@@ -75,7 +75,7 @@ Source: `.env.example`, `src/main/resources/application.yml`, `src/main/resource
 - No `CommandLineRunner`, `ApplicationRunner`, `data.sql`, `schema.sql`, seed script, or migration-inserted admin account was found.
 - `POST /api/v1/auth/login` is public, but `POST /api/v1/admin-users` requires `MANAGER`.
 - Without an existing active MANAGER row, a fresh database has no documented way to create the first admin account through the API.
-- README must not claim a demo login or first-user creation flow until this is implemented or explicitly documented as manual SQL/setup.
+- Follow-up resolved in `docs/16-first-manager-bootstrap-path.md`: README should document the supported manual SQL bootstrap path, not a demo login or automatic seed account.
 
 ## Findings
 
@@ -142,7 +142,7 @@ Source: `.env.example`, `src/main/resources/application.yml`, `src/main/resource
 - Current behavior: Login is public, but admin user creation requires `MANAGER`. A fresh database has no documented initial MANAGER account creation path.
 - Expected behavior: README should either document a manual SQL/bootstrap process or the application should provide an explicit MVP-safe seed/bootstrap mechanism.
 - Impact: A reader can start the server but cannot exercise protected MVP APIs without undocumented database setup.
-- Recommended action: Create a follow-up ticket to define the initial MANAGER bootstrap path before README runtime guide is finalized.
+- Recommended action: Use `docs/16-first-manager-bootstrap-path.md` as the README input for first MANAGER setup. It defines manual SQL bootstrap and keeps `POST /api/v1/admin-users` MANAGER-only.
 - Risk and effort estimate: Medium risk for portfolio usability, low to medium effort depending on chosen approach.
 
 ## Follow-up 티켓 권고
@@ -155,8 +155,9 @@ Source: `.env.example`, `src/main/resources/application.yml`, `src/main/resource
 2. Define first MANAGER bootstrap path.
    - Notion: https://app.notion.com/p/37b4c60a730381b3ba80c5a34e6112b0
    - Goal: A fresh database can be made usable for authenticated MVP API flows without undocumented tribal knowledge.
-   - Acceptance: README documents a supported manual SQL/bootstrap step, or implementation adds a controlled seed/bootstrap mechanism within MVP scope.
+   - Status: Resolved by `docs/16-first-manager-bootstrap-path.md`.
+   - Acceptance: README documents the supported manual SQL bootstrap step and keeps automatic seed accounts out of production runtime.
 
 ## 감사 결론
 
-README에 필요한 실행 command, env var, Flyway/JPA, Testcontainers 사실은 검증됐다. M8 README는 Neon/external PostgreSQL 경로를 기준으로 작성하면 된다. 다만 첫 MANAGER 계정 생성 경로는 README 전에 제품/구현 결정을 분리하는 것이 안전하다. `bootRun --args`는 현재 동작하지 않으므로 README에는 `SPRING_PROFILES_ACTIVE=dev` 기반 실행을 사용해야 한다.
+README에 필요한 실행 command, env var, Flyway/JPA, Testcontainers 사실은 검증됐다. M8 README는 Neon/external PostgreSQL 경로를 기준으로 작성하면 된다. 첫 MANAGER 계정 생성 경로는 `docs/16-first-manager-bootstrap-path.md`의 수동 SQL bootstrap 절차를 사용한다. `bootRun --args`는 현재 동작하지 않으므로 README에는 `SPRING_PROFILES_ACTIVE=dev` 기반 실행을 사용해야 한다.
