@@ -34,7 +34,7 @@ class GlobalExceptionHandlerTest @Autowired constructor(
             header(GlobalExceptionHandler.TRACE_ID_HEADER, "trace-domain")
         }.andExpect {
             status { isConflict() }
-            jsonPath("$.timestamp") { exists() }
+            jsonPath("$.timestamp") { value(matchesPattern(UTC_TIMESTAMP_PATTERN)) }
             jsonPath("$.status") { value(409) }
             jsonPath("$.code") { value("DUPLICATE_RESERVATION") }
             jsonPath("$.message") {
@@ -133,3 +133,6 @@ private data class ValidationTestRequest(
     @field:NotBlank
     val phone: String,
 )
+
+private const val UTC_TIMESTAMP_PATTERN =
+    """\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"""

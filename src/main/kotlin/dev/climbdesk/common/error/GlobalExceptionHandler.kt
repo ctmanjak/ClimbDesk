@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 @RestControllerAdvice
@@ -135,7 +136,7 @@ class GlobalExceptionHandler {
     ): ResponseEntity<ErrorResponse> =
         ResponseEntity.status(status).body(
             ErrorResponse(
-                timestamp = OffsetDateTime.now(),
+                timestamp = OffsetDateTime.now(ZoneOffset.UTC),
                 status = status.value(),
                 code = errorCode.name,
                 message = message,

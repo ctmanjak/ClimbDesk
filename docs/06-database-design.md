@@ -255,7 +255,7 @@ alter table members
   add constraint ck_members_status check (status in ('ACTIVE', 'INACTIVE')),
   add constraint ck_members_deactivated_at check (
     (status = 'INACTIVE' and deactivated_at is not null)
-    or (status = 'ACTIVE')
+    or (status = 'ACTIVE' and deactivated_at is null)
   );
 
 create index idx_members_created_at_id
@@ -411,8 +411,8 @@ alter table class_sessions
     affected_reservation_count >= 0
   ),
   add constraint ck_class_sessions_cancel_fields check (
-    (status = 'CANCELED' and canceled_at is not null)
-    or (status <> 'CANCELED')
+    (status = 'CANCELED' and canceled_at is not null and cancel_reason is not null)
+    or (status <> 'CANCELED' and canceled_at is null and cancel_reason is null)
   );
 ```
 
@@ -491,7 +491,7 @@ alter table outbox_events
   add constraint ck_outbox_events_retry_count check (retry_count >= 0),
   add constraint ck_outbox_events_published_at check (
     (status = 'PUBLISHED' and published_at is not null)
-    or (status <> 'PUBLISHED')
+    or (status <> 'PUBLISHED' and published_at is null)
   );
 ```
 
@@ -1005,6 +1005,8 @@ save(reservation)
 
 ## OutboxEventRepository
 
+MVP production code currently implements only `save(outboxEvent)`. Pending event retrieval and status transition methods are the contract for a future publisher/retry use case.
+
 ```plain text
 save(outboxEvent)
 findPendingEvents(limit)
@@ -1021,6 +1023,8 @@ order by next_retry_at asc nulls first, id asc
 limit :limit
 for update skip locked;
 ```
+
+Pending event retrieval is ordered by `next_retry_at asc nulls first, id asc`, matching `idx_outbox_events_pending`. It is not ordered by `occurred_at`.
 
 ---
 

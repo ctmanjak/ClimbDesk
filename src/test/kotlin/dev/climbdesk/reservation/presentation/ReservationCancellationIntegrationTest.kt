@@ -282,6 +282,109 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         assertThat(outboxEventJpaRepository.count()).isEqualTo(1)
     }
 
+    @Test
+    fun `concurrent reservation cancellation and creation remain consistent`() {
+        val token = accessTokenFor("manager-cancel-create@climbdesk.local", AdminUserRole.MANAGER)
+        val existingMember = saveMember()
+        val racingMember = saveMember()
+        val classSession = saveClassSession(capacity = 1, reservedCount = 1)
+        val existingPass = saveMemberPass(existingMember, remainingCount = 9)
+        val racingPass = saveMemberPass(racingMember, remainingCount = 10)
+        val existingReservationId = insertReservation(
+            existingMember.id,
+            classSession.id,
+            existingPass.id,
+            ReservationStatus.CONFIRMED,
+        )
+
+        val results = TestConcurrencyUtils.runConcurrently(
+            { cancelReservationResult(token, existingReservationId) },
+            { postReservationResult(token, racingMember.id, classSession.id) },
+        )
+        val cancellationResult = results[0]
+        val creationResult = results[1]
+        val creationCommitted = creationResult.status == 201
+
+        assertThat(cancellationResult.status).isEqualTo(200)
+        assertThat(creationResult.status).isIn(201, 409)
+        if (creationResult.status == 409) {
+            assertThat(creationResult.code).isEqualTo("CLASS_SESSION_FULL")
+        }
+
+        val savedClassSession = classSessionJpaRepository.findById(classSession.id).orElseThrow()
+        val reservations = reservationJpaRepository.findAll()
+        val confirmedReservations = reservations.filter { it.status == ReservationStatus.CONFIRMED }
+        val canceledReservation = reservations.single { it.id == existingReservationId }
+
+        assertThat(savedClassSession.reservedCount).isLessThanOrEqualTo(savedClassSession.capacity)
+        assertThat(savedClassSession.reservedCount).isEqualTo(confirmedReservations.size)
+        assertThat(canceledReservation.status).isEqualTo(ReservationStatus.CANCELED)
+        assertThat(canceledReservation.canceledAt).isNotNull()
+        assertThat(canceledReservation.cancelReason).isEqualTo(ReservationCancelReason.USER_REQUESTED)
+        assertThat(
+            reservationJpaRepository.existsByMemberIdAndClassSessionIdAndStatus(
+                existingMember.id,
+                classSession.id,
+                ReservationStatus.CONFIRMED,
+            ),
+        ).isFalse()
+        if (creationCommitted) {
+            assertThat(reservations).hasSize(2)
+            confirmedReservations.single().also { reservation ->
+                assertThat(reservation.memberId).isEqualTo(racingMember.id)
+                assertThat(reservation.classSessionId).isEqualTo(classSession.id)
+                assertThat(reservation.memberPassId).isEqualTo(racingPass.id)
+            }
+        } else {
+            assertThat(reservations).hasSize(1)
+            assertThat(confirmedReservations).isEmpty()
+        }
+
+        memberPassJpaRepository.findById(existingPass.id).orElseThrow().also { savedExistingPass ->
+            assertThat(savedExistingPass.remainingCount).isEqualTo(10)
+            assertThat(savedExistingPass.version).isEqualTo(existingPass.version + 1)
+        }
+        memberPassJpaRepository.findById(racingPass.id).orElseThrow().also { savedRacingPass ->
+            assertThat(savedRacingPass.remainingCount).isEqualTo(if (creationCommitted) 9 else 10)
+            assertThat(savedRacingPass.version).isEqualTo(racingPass.version + if (creationCommitted) 1 else 0)
+        }
+
+        val histories = passUsageHistoryJpaRepository.findAll()
+        assertThat(histories).hasSize(1 + if (creationCommitted) 1 else 0)
+        assertThat(histories.count { it.type == PassUsageHistoryType.RESTORE }).isEqualTo(1)
+        assertThat(histories.count { it.type == PassUsageHistoryType.CONSUME }).isEqualTo(if (creationCommitted) 1 else 0)
+        histories.single { it.type == PassUsageHistoryType.RESTORE }.also { history ->
+            assertThat(history.memberPassId).isEqualTo(existingPass.id)
+            assertThat(history.reservationId).isEqualTo(existingReservationId)
+            assertThat(history.reason).isEqualTo(PassUsageHistoryReason.RESERVATION_CANCELED)
+            assertThat(history.changedCount).isEqualTo(1)
+            assertThat(history.remainingCountAfter).isEqualTo(10)
+        }
+        if (creationCommitted) {
+            val createdReservation = confirmedReservations.single()
+            histories.single { it.type == PassUsageHistoryType.CONSUME }.also { history ->
+                assertThat(history.memberPassId).isEqualTo(racingPass.id)
+                assertThat(history.reservationId).isEqualTo(createdReservation.id)
+                assertThat(history.reason).isEqualTo(PassUsageHistoryReason.RESERVATION_CONFIRMED)
+                assertThat(history.changedCount).isEqualTo(-1)
+                assertThat(history.remainingCountAfter).isEqualTo(9)
+            }
+        }
+
+        val outboxEvents = outboxEventJpaRepository.findAll()
+        assertThat(outboxEvents).hasSize(1 + if (creationCommitted) 1 else 0)
+        assertThat(outboxEvents.map { it.status }).containsOnly(OutboxEventStatus.PENDING)
+        assertThat(outboxEvents.count { it.eventType == "ReservationCanceledEvent" }).isEqualTo(1)
+        assertThat(outboxEvents.count { it.eventType == "ReservationConfirmedEvent" })
+            .isEqualTo(if (creationCommitted) 1 else 0)
+        assertThat(outboxEvents.single { it.eventType == "ReservationCanceledEvent" }.aggregateId)
+            .isEqualTo(existingReservationId)
+        if (creationCommitted) {
+            assertThat(outboxEvents.single { it.eventType == "ReservationConfirmedEvent" }.aggregateId)
+                .isEqualTo(confirmedReservations.single().id)
+        }
+    }
+
     private fun cancelReservationResult(token: String, reservationId: Long): ReservationCancelResult {
         val response = mockMvc.patch("/api/v1/reservations/$reservationId/cancel") {
             header("Authorization", "Bearer $token")
@@ -290,6 +393,18 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
             .takeIf { it.isNotBlank() }
             ?.let { objectMapper.readTree(it)["code"]?.asText() }
         return ReservationCancelResult(status = response.status, code = code)
+    }
+
+    private fun postReservationResult(token: String, memberId: Long, classSessionId: Long): ReservationCreationResult {
+        val response = mockMvc.post("/api/v1/reservations") {
+            contentType = MediaType.APPLICATION_JSON
+            header("Authorization", "Bearer $token")
+            content = """{"memberId":$memberId,"classSessionId":$classSessionId}"""
+        }.andReturn().response
+        val code = response.contentAsString
+            .takeIf { it.isNotBlank() }
+            ?.let { objectMapper.readTree(it)["code"]?.asText() }
+        return ReservationCreationResult(status = response.status, code = code)
     }
 
     private fun org.springframework.test.web.servlet.MockMvcResultMatchersDsl.expectReservationCancelErrorShape(
@@ -333,6 +448,7 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         )
 
     private fun saveClassSession(
+        capacity: Int = 10,
         reservedCount: Int = 0,
     ): ClassSessionJpaEntity =
         classSessionJpaRepository.saveAndFlush(
@@ -340,7 +456,7 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
                 title = "Morning Bouldering",
                 startsAt = Instant.parse("2026-05-10T10:00:00Z"),
                 endsAt = Instant.parse("2026-05-10T11:00:00Z"),
-                capacity = 10,
+                capacity = capacity,
                 reservedCount = reservedCount,
                 status = ClassSessionStatus.OPEN,
             ),
@@ -443,7 +559,17 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
     }
 }
 
+private interface ReservationResult {
+    val status: Int
+    val code: String?
+}
+
 private data class ReservationCancelResult(
-    val status: Int,
-    val code: String?,
-)
+    override val status: Int,
+    override val code: String?,
+) : ReservationResult
+
+private data class ReservationCreationResult(
+    override val status: Int,
+    override val code: String?,
+) : ReservationResult
