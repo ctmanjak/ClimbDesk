@@ -3,6 +3,7 @@ package dev.climbdesk.auth.infrastructure.adapter
 import dev.climbdesk.auth.domain.AdminUser
 import dev.climbdesk.auth.domain.AdminUserRole
 import dev.climbdesk.auth.domain.AdminUserStatus
+import org.hamcrest.Matchers.matchesPattern
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -62,6 +63,7 @@ class SecurityFoundationTest @Autowired constructor(
             header("X-Trace-Id", "trace-auth-required")
         }.andExpect {
             status { isUnauthorized() }
+            jsonPath("$.timestamp") { value(matchesPattern(UTC_TIMESTAMP_PATTERN)) }
             jsonPath("$.status") { value(401) }
             jsonPath("$.code") { value("UNAUTHORIZED") }
             jsonPath("$.path") { value("/api/v1/security-test/protected") }
@@ -76,6 +78,7 @@ class SecurityFoundationTest @Autowired constructor(
             header("X-Trace-Id", "trace-invalid-token")
         }.andExpect {
             status { isUnauthorized() }
+            jsonPath("$.timestamp") { value(matchesPattern(UTC_TIMESTAMP_PATTERN)) }
             jsonPath("$.status") { value(401) }
             jsonPath("$.code") { value("UNAUTHORIZED") }
             jsonPath("$.path") { value("/api/v1/security-test/protected") }
@@ -99,6 +102,7 @@ class SecurityFoundationTest @Autowired constructor(
             header("X-Trace-Id", "trace-forbidden")
         }.andExpect {
             status { isForbidden() }
+            jsonPath("$.timestamp") { value(matchesPattern(UTC_TIMESTAMP_PATTERN)) }
             jsonPath("$.status") { value(403) }
             jsonPath("$.code") { value("FORBIDDEN") }
             jsonPath("$.path") { value("/api/v1/security-test/manager") }
@@ -145,3 +149,6 @@ class SecurityFoundationTest @Autowired constructor(
         fun manager(): String = "ok"
     }
 }
+
+private const val UTC_TIMESTAMP_PATTERN =
+    """\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"""
