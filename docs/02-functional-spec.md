@@ -523,17 +523,21 @@ ACTIVE -> INACTIVE    deactivate
 ACTIVE -> ACTIVE       consume, remainingCount > 0
 ACTIVE -> EXHAUSTED    consume, remainingCount == 0
 EXHAUSTED -> ACTIVE    restore, remainingCount > 0 and not expired
-ACTIVE -> EXPIRED      expire
-ACTIVE -> CANCELED     cancel
 ```
+
+`EXPIRED`와 `CANCELED` 상태는 MVP에서 사용 가능 여부와 복구 가능 여부를 판단하는 내부/future lifecycle state로 유지한다.
+MemberPass `expire()`/`cancel()` public use case/API, batch expiration, pass cancellation workflow는 MVP에 포함하지 않는다.
+필요해지면 별도 product decision으로 Functional Spec/API Spec/Test Strategy를 먼저 갱신한다.
 
 ## ClassSession
 
 ```plain text
-OPEN -> CLOSED
 OPEN -> CANCELED
-CLOSED -> CANCELED
 ```
+
+`CLOSED` 상태는 MVP에서 예약 가능 여부를 판단하는 내부/future lifecycle state로 유지한다.
+ClassSession `close()` public use case/API와 class update/closing workflow는 MVP에 포함하지 않는다.
+MVP public use case는 수업 생성/조회/취소이며, `OPEN -> CANCELED` 수업 취소만 노출한다.
 
 ## Reservation
 
