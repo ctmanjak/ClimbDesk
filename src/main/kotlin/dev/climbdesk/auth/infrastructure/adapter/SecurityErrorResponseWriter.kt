@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.util.UUID
 
 @Component
@@ -28,7 +29,7 @@ class SecurityErrorResponseWriter(
         objectMapper.writeValue(
             response.outputStream,
             ErrorResponse(
-                timestamp = OffsetDateTime.now(),
+                timestamp = OffsetDateTime.now(ZoneOffset.UTC),
                 status = status.value(),
                 code = errorCode.name,
                 message = errorCode.defaultMessage,

@@ -373,6 +373,7 @@ OutboxEvent ClassSessionCanceledEvent 기록
 - 비즈니스 규칙 위반은 409 계열 error code를 반환한다.
 - not found는 404 `*_NOT_FOUND`를 반환한다.
 - ErrorResponse는 timestamp, status, code, message, path, traceId를 포함한다.
+- API date-time 응답은 persisted response timestamp와 ErrorResponse timestamp 모두 ISO-8601 UTC `Z` 형식을 사용한다.
 
 ## 주요 API Tests
 
