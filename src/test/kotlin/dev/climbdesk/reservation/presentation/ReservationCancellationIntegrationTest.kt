@@ -395,7 +395,7 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         return ReservationCancelResult(status = response.status, code = code)
     }
 
-    private fun postReservationResult(token: String, memberId: Long, classSessionId: Long): ReservationCancelResult {
+    private fun postReservationResult(token: String, memberId: Long, classSessionId: Long): ReservationCreationResult {
         val response = mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
             header("Authorization", "Bearer $token")
@@ -404,7 +404,7 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         val code = response.contentAsString
             .takeIf { it.isNotBlank() }
             ?.let { objectMapper.readTree(it)["code"]?.asText() }
-        return ReservationCancelResult(status = response.status, code = code)
+        return ReservationCreationResult(status = response.status, code = code)
     }
 
     private fun org.springframework.test.web.servlet.MockMvcResultMatchersDsl.expectReservationCancelErrorShape(
@@ -559,7 +559,17 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
     }
 }
 
+private interface ReservationResult {
+    val status: Int
+    val code: String?
+}
+
 private data class ReservationCancelResult(
-    val status: Int,
-    val code: String?,
-)
+    override val status: Int,
+    override val code: String?,
+) : ReservationResult
+
+private data class ReservationCreationResult(
+    override val status: Int,
+    override val code: String?,
+) : ReservationResult

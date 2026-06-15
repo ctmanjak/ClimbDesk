@@ -326,8 +326,15 @@ class MemberPassOptimisticLockCoordinator {
     }
 
     fun reset() {
+        release(availablePassSelectionBarrier)
+        release(memberPassLoadBarrier?.latch)
         availablePassSelectionBarrier = null
         memberPassLoadBarrier = null
+    }
+
+    private fun release(latch: CountDownLatch?) {
+        latch?.countDown()
+        latch?.countDown()
     }
 
     private fun await(latch: CountDownLatch?) {
