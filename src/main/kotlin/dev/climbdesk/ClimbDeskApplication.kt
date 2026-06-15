@@ -8,6 +8,6 @@ import org.springframework.boot.runApplication
 @ConfigurationPropertiesScan
 class ClimbDeskApplication
 
-fun main() {
-    runApplication<ClimbDeskApplication>()
+fun main(args: Array<String>) {
+    runApplication<ClimbDeskApplication>(*args)
 }
