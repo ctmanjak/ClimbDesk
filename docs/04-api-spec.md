@@ -425,6 +425,8 @@ POST /api/v1/pass-products
 }
 ```
 
+`price`와 `validDays`는 optional이다. 요청에서 생략하면 저장 값은 `null`이다.
+
 ### Response: 201 Created
 
 ```json
@@ -438,6 +440,8 @@ POST /api/v1/pass-products
   "createdAt": "2026-05-01T01:00:00Z"
 }
 ```
+
+`price`와 `validDays`는 nullable이다. PassProduct 생성 요청에서 생략된 필드는 응답에서도 `null`로 반환된다.
 
 ### Errors
 
