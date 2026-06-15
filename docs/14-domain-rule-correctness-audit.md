@@ -68,6 +68,7 @@
 - Expected behavior: PRD MVP scope includes pass issuance/consume/restore/history and class create/query/cancel/capacity management. It does not include pass cancellation, batch expiration, class closing, or class update workflows.
 - Impact: The code is scope-conservative, but the documents can be read as requiring unimplemented lifecycle operations.
 - Recommended action: Create a documentation follow-up to mark these transitions as future/internal states, or make an explicit product decision before adding them as MVP work.
+- Resolution note: `Clarify non-exposed lifecycle transitions` keeps MemberPass `expire()`/`cancel()` and ClassSession `close()` out of MVP public use cases/APIs. Domain Model and Test Strategy now describe those transitions as future/internal lifecycle states and keep current guard behavior as the only MVP expectation.
 - Risk and effort estimate: Low production risk, low documentation effort.
 
 ### F-06: Authorization business rules are enforced at the API/security boundary, not inside application service commands
@@ -89,7 +90,7 @@
 
 2. Non-exposed lifecycle transitions 문서 정리.
    - Goal: MemberPass `expire()`/`cancel()` and ClassSession `close()` are clearly marked as future/internal states, or promoted into explicit MVP use cases by product decision.
-   - Acceptance: Domain Model and Test Strategy no longer imply implementation obligations that are absent from PRD/Functional Spec MVP feature flows.
+   - Acceptance: Resolved by keeping these transitions out of MVP public use cases/APIs and clarifying Domain Model/Test Strategy expectations as future/internal lifecycle state guard behavior.
 
 ## 감사 결론
 
