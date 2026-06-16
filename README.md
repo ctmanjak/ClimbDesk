@@ -25,7 +25,9 @@
 ·
 <a href="#빠른-실행"><strong>빠른 실행</strong></a>
 ·
-<a href="#구조"><strong>구조</strong></a>
+<a href="#애플리케이션-구조"><strong>애플리케이션 구조</strong></a>
+·
+<a href="#정합성-보드"><strong>정합성</strong></a>
 ·
 <a href="#테스트"><strong>테스트</strong></a>
 
@@ -105,7 +107,7 @@ flowchart LR
     Reservation --> Guard3["CONFIRMED 중복 예약 없음"]
 ```
 
-## 구조
+## 애플리케이션 구조
 
 ```mermaid
 flowchart TB
