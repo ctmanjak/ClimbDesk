@@ -24,7 +24,7 @@ create table members (
   constraint ck_members_status check (status in ('ACTIVE', 'INACTIVE')),
   constraint ck_members_deactivated_at check (
     (status = 'INACTIVE' and deactivated_at is not null)
-    or (status = 'ACTIVE' and deactivated_at is null)
+    or (status = 'ACTIVE')
   )
 );
 
@@ -62,8 +62,8 @@ create table class_sessions (
   constraint ck_class_sessions_reserved_count check (reserved_count >= 0 and reserved_count <= capacity),
   constraint ck_class_sessions_affected_reservation_count check (affected_reservation_count >= 0),
   constraint ck_class_sessions_cancel_fields check (
-    (status = 'CANCELED' and canceled_at is not null and cancel_reason is not null)
-    or (status <> 'CANCELED' and canceled_at is null and cancel_reason is null)
+    (status = 'CANCELED' and canceled_at is not null)
+    or (status <> 'CANCELED')
   )
 );
 
@@ -157,7 +157,7 @@ create table outbox_events (
   constraint ck_outbox_events_retry_count check (retry_count >= 0),
   constraint ck_outbox_events_published_at check (
     (status = 'PUBLISHED' and published_at is not null)
-    or (status <> 'PUBLISHED' and published_at is null)
+    or (status <> 'PUBLISHED')
   )
 );
 
