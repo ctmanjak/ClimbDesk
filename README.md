@@ -25,9 +25,9 @@
 ·
 <a href="#빠른-실행"><strong>빠른 실행</strong></a>
 ·
-<a href="#구조"><strong>구조</strong></a>
+<a href="#애플리케이션-구조"><strong>애플리케이션 구조</strong></a>
 ·
-<a href="#api-지도"><strong>API 지도</strong></a>
+<a href="#정합성-보드"><strong>정합성</strong></a>
 ·
 <a href="#테스트"><strong>테스트</strong></a>
 
@@ -107,7 +107,7 @@ flowchart LR
     Reservation --> Guard3["CONFIRMED 중복 예약 없음"]
 ```
 
-## 구조
+## 애플리케이션 구조
 
 ```mermaid
 flowchart TB
@@ -134,19 +134,6 @@ flowchart TB
 | 같은 회원의 같은 수업 CONFIRMED 예약은 1개 | 코드 사전 검증 | partial unique index | 중복 예약 |
 | 예약 생성은 원자적으로 처리 | 예약 생성 서비스의 트랜잭션 | FK/check constraint | 좌석, 이용권, 이력, outbox |
 | 예약 취소는 원자적으로 처리 | 예약 취소 서비스의 트랜잭션 | FK/check constraint | 좌석 복구, 이용권 복구, 이력 |
-
-## API 지도
-
-기본 URL은 `/api/v1`입니다. `POST /auth/login`과 헬스 체크 엔드포인트를 제외한 API는 JWT 인증을 요구합니다.
-
-| 영역 | 엔드포인트 |
-| --- | --- |
-| Auth | `POST /api/v1/auth/login` |
-| Admin | `POST /api/v1/admin-users`, `PATCH /api/v1/admin-users/{id}/role`, `PATCH /api/v1/admin-users/{id}/activate`, `PATCH /api/v1/admin-users/{id}/deactivate` |
-| Member | `POST /api/v1/members`, `GET /api/v1/members`, `GET /api/v1/members/{id}`, `PATCH /api/v1/members/{id}/deactivate` |
-| Pass | `POST /api/v1/pass-products`, `GET /api/v1/pass-products`, `GET /api/v1/pass-products/{id}`, `POST /api/v1/member-passes`, `GET /api/v1/members/{memberId}/passes`, `GET /api/v1/member-passes/{id}/usage-histories` |
-| Class Session | `POST /api/v1/class-sessions`, `GET /api/v1/class-sessions`, `GET /api/v1/class-sessions/{id}`, `PATCH /api/v1/class-sessions/{id}/cancel` |
-| Reservation | `POST /api/v1/reservations`, `GET /api/v1/reservations`, `GET /api/v1/reservations/{id}`, `PATCH /api/v1/reservations/{id}/cancel` |
 
 ## MVP 범위
 
