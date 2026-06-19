@@ -269,3 +269,4 @@ curl -i -X POST "http://localhost:8080/api/v1/auth/login" \
 | [Database Design](docs/06-database-design.md) | PostgreSQL schema, constraint, index |
 | [Test Strategy](docs/07-test-strategy.md) | 테스트 범위와 전략 |
 | [Roadmap](docs/09-roadmap.md) | MVP 구현 순서 |
+| [MVP API 사용 시나리오](docs/17-mvp-api-usage-scenarios.md) | 로그인부터 예약 생성·조회·취소까지 실행 흐름 |
