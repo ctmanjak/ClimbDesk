@@ -17,37 +17,21 @@
 > **지키는 방법:** 트랜잭션 경계, 도메인 불변조건, PostgreSQL 제약조건, 비관적/낙관적 락으로 핵심 상태 변화를 보호합니다.<br />
 > **실행 방법:** PostgreSQL 연결 정보를 설정한 뒤 `./gradlew bootRun`으로 실행합니다.
 
-<p>
-  <strong>프로젝트 바로가기</strong><br />
-  <sub>설계 근거와 개발 진행 상황을 Notion에서 확인할 수 있습니다.</sub>
-</p>
+### 프로젝트 바로가기
 
-<p>
-  <a href="https://manjak.notion.site/3e177e3aee4243ba8b4abeb859cbb168?v=d96bdd9739e6485ca9fc31121c29f9e6&amp;source=copy_link">
-    <img src="https://img.shields.io/badge/Notion-Project%20Docs-000000?style=for-the-badge&amp;logo=notion&amp;logoColor=white" alt="프로젝트 문서" />
-  </a>
-  &nbsp;
-  <a href="https://manjak.notion.site/8c4a59e5c7444fd5a25c02d63bd8229b?v=c661c907e26443f0924ff9de32d831a0&amp;source=copy_link">
-    <img src="https://img.shields.io/badge/Notion-Development%20Tickets-2EA44F?style=for-the-badge&amp;logo=notion&amp;logoColor=white" alt="개발 티켓" />
-  </a>
-</p>
+설계 근거와 개발 진행 상황을 Notion에서 확인할 수 있습니다.
 
-<br />
+[![프로젝트 문서](https://img.shields.io/badge/Notion-Project%20Docs-000000?style=for-the-badge&logo=notion&logoColor=white)](https://manjak.notion.site/3e177e3aee4243ba8b4abeb859cbb168?v=d96bdd9739e6485ca9fc31121c29f9e6&source=copy_link)
+[![개발 티켓](https://img.shields.io/badge/Notion-Development%20Tickets-2EA44F?style=for-the-badge&logo=notion&logoColor=white)](https://manjak.notion.site/8c4a59e5c7444fd5a25c02d63bd8229b?v=c661c907e26443f0924ff9de32d831a0&source=copy_link)
 
-<p>
-  <sub><strong>README 둘러보기</strong></sub><br /><br />
-  <a href="#왜-climbdesk인가">왜 ClimbDesk인가</a>
-  &nbsp;·&nbsp;
-  <a href="#설계-노트">설계 노트</a>
-  &nbsp;·&nbsp;
-  <a href="#빠른-실행">빠른 실행</a>
-  &nbsp;·&nbsp;
-  <a href="#애플리케이션-구조">애플리케이션 구조</a>
-  &nbsp;·&nbsp;
-  <a href="#정합성-보드">정합성</a>
-  &nbsp;·&nbsp;
-  <a href="#테스트">테스트</a>
-</p>
+### README 둘러보기
+
+[왜 ClimbDesk인가](#왜-climbdesk인가) ·
+[설계 노트](#설계-노트) ·
+[빠른 실행](#빠른-실행) ·
+[애플리케이션 구조](#애플리케이션-구조) ·
+[정합성](#정합성-보드) ·
+[테스트](#테스트)
 
 </div>
 
