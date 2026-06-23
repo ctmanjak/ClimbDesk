@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: climbdesk
+  datasource:
+    url: ${CLIMBDESK_DATASOURCE_URL}
+    username: ${CLIMBDESK_DATASOURCE_USERNAME}
+    password: ${CLIMBDESK_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+climbdesk:
+  auth:
+    jwt:
+      secret: ${CLIMBDESK_JWT_SECRET:}
+      expires-in: ${CLIMBDESK_JWT_EXPIRES_IN:3600}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
