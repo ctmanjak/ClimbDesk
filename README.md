@@ -30,6 +30,10 @@
 <a href="#정합성-보드"><strong>정합성</strong></a>
 ·
 <a href="#테스트"><strong>테스트</strong></a>
+·
+<a href="https://manjak.notion.site/3e177e3aee4243ba8b4abeb859cbb168?v=d96bdd9739e6485ca9fc31121c29f9e6&amp;source=copy_link"><strong>프로젝트 문서</strong></a>
+·
+<a href="https://manjak.notion.site/8c4a59e5c7444fd5a25c02d63bd8229b?v=c661c907e26443f0924ff9de32d831a0&amp;source=copy_link"><strong>개발 티켓</strong></a>
 
 </div>
 
