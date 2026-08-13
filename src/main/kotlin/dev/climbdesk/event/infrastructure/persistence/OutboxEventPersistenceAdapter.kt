@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.climbdesk.classsession.domain.ClassSessionCanceledEvent
 import dev.climbdesk.event.application.OutboxEventRecorder
 import dev.climbdesk.event.domain.OutboxEvent
+import dev.climbdesk.event.domain.OutboxPublishTarget
 import dev.climbdesk.reservation.domain.ReservationCanceledEvent
 import dev.climbdesk.reservation.domain.ReservationConfirmedEvent
 import org.springframework.stereotype.Repository
@@ -24,6 +25,7 @@ class OutboxEventPersistenceAdapter(
             aggregateId = event.classSessionId,
             eventPayload = event,
             occurredAt = event.occurredAt,
+            publishTarget = OutboxPublishTarget.NONE,
         )
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -34,6 +36,7 @@ class OutboxEventPersistenceAdapter(
             aggregateId = event.reservationId,
             eventPayload = event,
             occurredAt = event.occurredAt,
+            publishTarget = OutboxPublishTarget.RABBITMQ,
         )
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -44,6 +47,7 @@ class OutboxEventPersistenceAdapter(
             aggregateId = event.reservationId,
             eventPayload = event,
             occurredAt = event.occurredAt,
+            publishTarget = OutboxPublishTarget.NONE,
         )
 
     private fun createAndSaveOutbox(
@@ -52,6 +56,7 @@ class OutboxEventPersistenceAdapter(
         aggregateType: String,
         aggregateId: Long,
         occurredAt: Instant,
+        publishTarget: OutboxPublishTarget,
     ): OutboxEvent {
         val outboxEvent = OutboxEvent.pending(
             eventType = eventType,
@@ -59,6 +64,7 @@ class OutboxEventPersistenceAdapter(
             aggregateId = aggregateId,
             payload = objectMapper.writeValueAsString(eventPayload),
             occurredAt = occurredAt,
+            publishTarget = publishTarget,
         )
 
         return outboxEventJpaRepository.saveAndFlush(outboxEvent.toJpaEntity()).toDomain()

@@ -1,5 +1,6 @@
 package dev.climbdesk.event.infrastructure.persistence
 
+import dev.climbdesk.event.domain.OutboxPublishTarget
 import dev.climbdesk.event.domain.OutboxEventStatus
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -39,6 +40,13 @@ class OutboxEventJpaEntity(
     @Column(nullable = false, length = 20)
     val status: OutboxEventStatus,
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "publish_target", nullable = false, length = 30)
+    val publishTarget: OutboxPublishTarget,
+
+    @Column(name = "schema_version", nullable = false)
+    val schemaVersion: Int,
+
     @Column(name = "retry_count", nullable = false)
     val retryCount: Int,
 
@@ -50,6 +58,9 @@ class OutboxEventJpaEntity(
 
     @Column(name = "next_retry_at")
     val nextRetryAt: Instant? = null,
+
+    @Column(name = "last_error", length = 1000)
+    val lastError: String? = null,
 
     @Column(name = "created_at", nullable = false)
     var createdAt: Instant? = null,

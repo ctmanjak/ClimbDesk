@@ -11,6 +11,7 @@ import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEntity
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaRepository
 import dev.climbdesk.event.domain.OutboxEventStatus
+import dev.climbdesk.event.domain.OutboxPublishTarget
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
 import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
@@ -146,6 +147,8 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         assertThat(outboxEvent.aggregateType).isEqualTo("Reservation")
         assertThat(outboxEvent.aggregateId).isEqualTo(reservationId)
         assertThat(outboxEvent.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(outboxEvent.publishTarget).isEqualTo(OutboxPublishTarget.RABBITMQ)
+        assertThat(outboxEvent.schemaVersion).isEqualTo(1)
     }
 
     @Test
