@@ -11,6 +11,7 @@ import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEntity
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaRepository
 import dev.climbdesk.event.domain.OutboxEventStatus
+import dev.climbdesk.event.domain.OutboxPublishTarget
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
 import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
@@ -127,6 +128,8 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         assertThat(outboxEvent.aggregateType).isEqualTo("Reservation")
         assertThat(outboxEvent.aggregateId).isEqualTo(reservationId)
         assertThat(outboxEvent.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(outboxEvent.publishTarget).isEqualTo(OutboxPublishTarget.NONE)
+        assertThat(outboxEvent.schemaVersion).isEqualTo(1)
     }
 
     @Test
@@ -374,14 +377,18 @@ class ReservationCancellationIntegrationTest @Autowired constructor(
         val outboxEvents = outboxEventJpaRepository.findAll()
         assertThat(outboxEvents).hasSize(1 + if (creationCommitted) 1 else 0)
         assertThat(outboxEvents.map { it.status }).containsOnly(OutboxEventStatus.PENDING)
+        assertThat(outboxEvents.single { it.eventType == "ReservationCanceledEvent" }.publishTarget)
+            .isEqualTo(OutboxPublishTarget.NONE)
         assertThat(outboxEvents.count { it.eventType == "ReservationCanceledEvent" }).isEqualTo(1)
         assertThat(outboxEvents.count { it.eventType == "ReservationConfirmedEvent" })
             .isEqualTo(if (creationCommitted) 1 else 0)
         assertThat(outboxEvents.single { it.eventType == "ReservationCanceledEvent" }.aggregateId)
             .isEqualTo(existingReservationId)
         if (creationCommitted) {
-            assertThat(outboxEvents.single { it.eventType == "ReservationConfirmedEvent" }.aggregateId)
-                .isEqualTo(confirmedReservations.single().id)
+            outboxEvents.single { it.eventType == "ReservationConfirmedEvent" }.also { event ->
+                assertThat(event.aggregateId).isEqualTo(confirmedReservations.single().id)
+                assertThat(event.publishTarget).isEqualTo(OutboxPublishTarget.RABBITMQ)
+            }
         }
     }
 

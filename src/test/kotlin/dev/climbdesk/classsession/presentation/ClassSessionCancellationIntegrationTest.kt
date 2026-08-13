@@ -11,6 +11,7 @@ import dev.climbdesk.classsession.domain.ClassSessionStatus
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEntity
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaRepository
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
+import dev.climbdesk.event.domain.OutboxPublishTarget
 import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaRepository
@@ -154,6 +155,8 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
         assertThat(outboxEvent.eventType).isEqualTo("ClassSessionCanceledEvent")
         assertThat(outboxEvent.aggregateType).isEqualTo("ClassSession")
         assertThat(outboxEvent.aggregateId).isEqualTo(classSession.id)
+        assertThat(outboxEvent.publishTarget).isEqualTo(OutboxPublishTarget.NONE)
+        assertThat(outboxEvent.schemaVersion).isEqualTo(1)
         assertThat(payload["classSessionId"].longValue()).isEqualTo(classSession.id)
         assertThat(payload["affectedReservationCount"].intValue()).isEqualTo(2)
     }

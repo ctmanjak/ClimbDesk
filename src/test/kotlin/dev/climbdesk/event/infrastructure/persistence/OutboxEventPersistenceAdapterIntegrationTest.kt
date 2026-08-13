@@ -3,6 +3,7 @@ package dev.climbdesk.event.infrastructure.persistence
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.climbdesk.classsession.domain.ClassSessionCanceledEvent
 import dev.climbdesk.event.application.OutboxEventRecorder
+import dev.climbdesk.event.domain.OutboxPublishTarget
 import dev.climbdesk.event.domain.OutboxEventStatus
 import dev.climbdesk.reservation.domain.ReservationCanceledEvent
 import dev.climbdesk.reservation.domain.ReservationCancelReason
@@ -61,6 +62,9 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
         assertThat(persisted.aggregateType).isEqualTo("ClassSession")
         assertThat(persisted.aggregateId).isEqualTo(301L)
         assertThat(persisted.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(persisted.publishTarget).isEqualTo(OutboxPublishTarget.NONE)
+        assertThat(persisted.schemaVersion).isEqualTo(1)
+        assertThat(persisted.lastError).isNull()
         assertThat(persisted.occurredAt).isEqualTo(occurredAt)
         assertThat(payload["classSessionId"].longValue()).isEqualTo(301L)
         assertThat(payload["cancelReason"].textValue()).isEqualTo("Operational issue")
@@ -89,6 +93,9 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
         assertThat(persisted.aggregateType).isEqualTo("Reservation")
         assertThat(persisted.aggregateId).isEqualTo(101L)
         assertThat(persisted.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(persisted.publishTarget).isEqualTo(OutboxPublishTarget.RABBITMQ)
+        assertThat(persisted.schemaVersion).isEqualTo(1)
+        assertThat(persisted.lastError).isNull()
         assertThat(persisted.retryCount).isZero()
         assertThat(persisted.occurredAt).isEqualTo(occurredAt)
         assertThat(persisted.publishedAt).isNull()
@@ -123,6 +130,9 @@ class OutboxEventPersistenceAdapterIntegrationTest @Autowired constructor(
         assertThat(persisted.aggregateType).isEqualTo("Reservation")
         assertThat(persisted.aggregateId).isEqualTo(101L)
         assertThat(persisted.status).isEqualTo(OutboxEventStatus.PENDING)
+        assertThat(persisted.publishTarget).isEqualTo(OutboxPublishTarget.NONE)
+        assertThat(persisted.schemaVersion).isEqualTo(1)
+        assertThat(persisted.lastError).isNull()
         assertThat(persisted.occurredAt).isEqualTo(occurredAt)
         assertThat(payload["reservationId"].longValue()).isEqualTo(101L)
         assertThat(payload["memberId"].longValue()).isEqualTo(201L)

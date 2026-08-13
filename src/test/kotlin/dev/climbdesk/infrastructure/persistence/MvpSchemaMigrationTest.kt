@@ -49,6 +49,8 @@ class MvpSchemaMigrationTest @Autowired constructor(
             "reservations",
             "pass_usage_histories",
             "outbox_events",
+            "processed_events",
+            "reservation_notification_requests",
             "flyway_schema_history",
         )
     }
@@ -113,6 +115,23 @@ class MvpSchemaMigrationTest @Autowired constructor(
             ConstraintInventory("ck_outbox_events_status", "outbox_events", "c"),
             ConstraintInventory("ck_outbox_events_retry_count", "outbox_events", "c"),
             ConstraintInventory("ck_outbox_events_published_at", "outbox_events", "c"),
+            ConstraintInventory("ck_outbox_events_publish_target", "outbox_events", "c"),
+            ConstraintInventory("ck_outbox_events_schema_version", "outbox_events", "c"),
+            ConstraintInventory(
+                "uk_reservation_notification_source_event",
+                "reservation_notification_requests",
+                "u",
+            ),
+            ConstraintInventory(
+                "ck_reservation_notification_type",
+                "reservation_notification_requests",
+                "c",
+            ),
+            ConstraintInventory(
+                "ck_reservation_notification_status",
+                "reservation_notification_requests",
+                "c",
+            ),
         )
     }
 
@@ -239,6 +258,14 @@ class MvpSchemaMigrationTest @Autowired constructor(
                 "idx_outbox_events_aggregate",
                 "outbox_events",
                 listOf("aggregate_type", "aggregate_id"),
+            ),
+            index(
+                "idx_outbox_events_publishable",
+                "outbox_events",
+                listOf("status", "next_retry_at NULLS FIRST", "id"),
+                predicate = """
+                    (((publish_target)::text = 'RABBITMQ'::text) AND ((status)::text = ANY ((ARRAY['PENDING'::character varying, 'FAILED'::character varying])::text[])))
+                """.trimIndent(),
             ),
             index(
                 "idx_outbox_events_occurred_at",
