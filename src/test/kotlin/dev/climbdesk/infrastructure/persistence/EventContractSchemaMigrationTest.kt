@@ -64,6 +64,28 @@ class EventContractSchemaMigrationTest @Autowired constructor(
                     assertThat(result.getString("last_error")).isNull()
                 }
             }
+
+            connection.prepareStatement(
+                """
+                select conname, convalidated
+                from pg_constraint
+                where conname in (
+                  'ck_outbox_events_publish_target',
+                  'ck_outbox_events_schema_version'
+                )
+                order by conname
+                """.trimIndent(),
+            ).use { statement ->
+                statement.executeQuery().use { result ->
+                    assertThat(result.next()).isTrue()
+                    assertThat(result.getString("conname")).isEqualTo("ck_outbox_events_publish_target")
+                    assertThat(result.getBoolean("convalidated")).isTrue()
+                    assertThat(result.next()).isTrue()
+                    assertThat(result.getString("conname")).isEqualTo("ck_outbox_events_schema_version")
+                    assertThat(result.getBoolean("convalidated")).isTrue()
+                    assertThat(result.next()).isFalse()
+                }
+            }
         }
     }
 
@@ -190,6 +212,9 @@ class EventContractSchemaMigrationTest @Autowired constructor(
         val configuration = Flyway.configure()
             .dataSource(dataSource)
             .cleanDisabled(false)
+            .configuration(
+                mapOf("flyway.postgresql.transactional.lock" to "false"),
+            )
         if (target != null) {
             configuration.target(target)
         }

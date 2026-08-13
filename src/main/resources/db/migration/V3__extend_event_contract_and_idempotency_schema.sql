@@ -3,14 +3,15 @@ alter table outbox_events
   add column schema_version integer not null default 1,
   add column last_error varchar(1000),
   add constraint ck_outbox_events_publish_target
-    check (publish_target in ('NONE', 'RABBITMQ')),
+    check (publish_target in ('NONE', 'RABBITMQ')) not valid,
   add constraint ck_outbox_events_schema_version
-    check (schema_version >= 1);
+    check (schema_version >= 1) not valid;
 
-create index idx_outbox_events_publishable
-  on outbox_events (status, next_retry_at asc nulls first, id asc)
-  where publish_target = 'RABBITMQ'
-    and status in ('PENDING', 'FAILED');
+alter table outbox_events
+  validate constraint ck_outbox_events_publish_target;
+
+alter table outbox_events
+  validate constraint ck_outbox_events_schema_version;
 
 create table processed_events (
   consumer_name varchar(100) not null,
