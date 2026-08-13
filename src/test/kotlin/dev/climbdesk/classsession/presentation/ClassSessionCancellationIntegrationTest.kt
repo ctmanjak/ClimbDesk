@@ -386,6 +386,7 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
         member: MemberJpaEntity,
         remainingCount: Int,
     ): MemberPassJpaEntity {
+        val issuedAt = Instant.now()
         val passProduct = passProductJpaRepository.saveAndFlush(
             PassProductJpaEntity(
                 name = "10 Count Pass",
@@ -407,8 +408,8 @@ class ClassSessionCancellationIntegrationTest @Autowired constructor(
                 priceSnapshot = passProduct.price,
                 validDaysSnapshot = passProduct.validDays,
                 status = if (remainingCount == 0) MemberPassStatus.EXHAUSTED else MemberPassStatus.ACTIVE,
-                issuedAt = Instant.parse("2026-05-01T00:00:00Z"),
-                expiresAt = Instant.parse("2026-05-01T00:00:00Z").plus(90, ChronoUnit.DAYS),
+                issuedAt = issuedAt,
+                expiresAt = issuedAt.plus(90, ChronoUnit.DAYS),
             ),
         )
     }

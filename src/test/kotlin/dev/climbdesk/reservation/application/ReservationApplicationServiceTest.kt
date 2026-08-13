@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 class ReservationApplicationServiceTest {
     @Test
@@ -251,8 +252,9 @@ private fun openClassSession(reservedCount: Int = 0): ClassSession =
         status = ClassSessionStatus.OPEN,
     )
 
-private fun availableMemberPass(remainingCount: Int = 10): MemberPass =
-    MemberPass(
+private fun availableMemberPass(remainingCount: Int = 10): MemberPass {
+    val issuedAt = Instant.now()
+    return MemberPass(
         id = 4,
         memberId = 1,
         passProductId = 5,
@@ -263,9 +265,10 @@ private fun availableMemberPass(remainingCount: Int = 10): MemberPass =
         priceSnapshot = BigDecimal("150000"),
         validDaysSnapshot = 90,
         status = MemberPassStatus.ACTIVE,
-        issuedAt = Instant.parse("2026-05-01T00:00:00Z"),
-        expiresAt = Instant.parse("2026-08-01T00:00:00Z"),
+        issuedAt = issuedAt,
+        expiresAt = issuedAt.plus(90, ChronoUnit.DAYS),
     )
+}
 
 private fun confirmedReservation(): Reservation =
     Reservation(

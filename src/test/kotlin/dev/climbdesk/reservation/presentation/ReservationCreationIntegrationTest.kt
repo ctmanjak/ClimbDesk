@@ -99,8 +99,9 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("${role.name.lowercase()}@climbdesk.local", role)
         val member = saveMember(status = MemberStatus.ACTIVE)
         val classSession = saveClassSession(capacity = 12, reservedCount = 0)
-        val firstPass = saveMemberPass(member, remainingCount = 3, issuedAt = Instant.parse("2026-05-01T00:00:00Z"))
-        saveMemberPass(member, remainingCount = 10, issuedAt = Instant.parse("2026-05-02T00:00:00Z"))
+        val firstIssuedAt = Instant.now().minus(1, ChronoUnit.DAYS)
+        val firstPass = saveMemberPass(member, remainingCount = 3, issuedAt = firstIssuedAt)
+        saveMemberPass(member, remainingCount = 10, issuedAt = firstIssuedAt.plus(1, ChronoUnit.HOURS))
 
         val response = mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
@@ -304,9 +305,10 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("manager-canceled-history@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.ACTIVE)
         val classSession = saveClassSession()
-        val oldPass = saveMemberPass(member, remainingCount = 5)
+        val firstIssuedAt = Instant.now().minus(1, ChronoUnit.DAYS)
+        val oldPass = saveMemberPass(member, remainingCount = 5, issuedAt = firstIssuedAt)
         insertReservation(member.id, classSession.id, oldPass.id, ReservationStatus.CANCELED)
-        saveMemberPass(member, remainingCount = 5, issuedAt = Instant.parse("2026-05-02T00:00:00Z"))
+        saveMemberPass(member, remainingCount = 5, issuedAt = firstIssuedAt.plus(1, ChronoUnit.HOURS))
 
         mockMvc.post("/api/v1/reservations") {
             contentType = MediaType.APPLICATION_JSON
@@ -325,23 +327,24 @@ class ReservationCreationIntegrationTest @Autowired constructor(
         val token = accessTokenFor("manager-pass-order@climbdesk.local", AdminUserRole.MANAGER)
         val member = saveMember(status = MemberStatus.ACTIVE)
         val classSession = saveClassSession()
+        val now = Instant.now()
         saveMemberPass(
             member = member,
             remainingCount = 5,
-            issuedAt = Instant.parse("2026-05-01T00:00:00Z"),
+            issuedAt = now.minus(3, ChronoUnit.DAYS),
             expiresAt = null,
         )
         saveMemberPass(
             member = member,
             remainingCount = 5,
-            issuedAt = Instant.parse("2026-05-01T00:00:00Z"),
-            expiresAt = Instant.parse("2026-08-01T00:00:00Z"),
+            issuedAt = now.minus(3, ChronoUnit.DAYS),
+            expiresAt = now.plus(10, ChronoUnit.DAYS),
         )
         val selectedPass = saveMemberPass(
             member = member,
             remainingCount = 5,
-            issuedAt = Instant.parse("2026-05-03T00:00:00Z"),
-            expiresAt = Instant.parse("2026-07-20T00:00:00Z"),
+            issuedAt = now.minus(1, ChronoUnit.DAYS),
+            expiresAt = now.plus(3, ChronoUnit.DAYS),
         )
 
         mockMvc.post("/api/v1/reservations") {
@@ -646,7 +649,7 @@ class ReservationCreationIntegrationTest @Autowired constructor(
     private fun saveMemberPass(
         member: MemberJpaEntity,
         remainingCount: Int = 10,
-        issuedAt: Instant = Instant.parse("2026-05-01T00:00:00Z"),
+        issuedAt: Instant = Instant.now(),
         expiresAt: Instant? = issuedAt.plus(90, ChronoUnit.DAYS),
     ): MemberPassJpaEntity {
         val passProduct = passProductJpaRepository.saveAndFlush(
