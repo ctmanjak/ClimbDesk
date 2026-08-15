@@ -1,6 +1,22 @@
 spring:
   application:
     name: climbdesk
+  rabbitmq:
+    host: ${CLIMBDESK_RABBITMQ_HOST:localhost}
+    port: ${CLIMBDESK_RABBITMQ_PORT:5672}
+    username: ${CLIMBDESK_RABBITMQ_USERNAME:climbdesk}
+    password: ${CLIMBDESK_RABBITMQ_PASSWORD:climbdesk}
+    virtual-host: ${CLIMBDESK_RABBITMQ_VIRTUAL_HOST:/}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+        prefetch: 10
+        concurrency: 1
   datasource:
     url: ${CLIMBDESK_DATASOURCE_URL}
     username: ${CLIMBDESK_DATASOURCE_USERNAME}
@@ -18,6 +34,11 @@ climbdesk:
     jwt:
       secret: ${CLIMBDESK_JWT_SECRET:}
       expires-in: ${CLIMBDESK_JWT_EXPIRES_IN:3600}
+  messaging:
+    rabbitmq:
+      enabled: ${CLIMBDESK_RABBITMQ_ENABLED:false}
+      publisher-enabled: ${CLIMBDESK_RABBITMQ_PUBLISHER_ENABLED:false}
+      listener-enabled: ${CLIMBDESK_RABBITMQ_LISTENER_ENABLED:false}
 
 management:
   endpoints:
@@ -28,3 +49,7 @@ management:
     health:
       probes:
         enabled: true
+      show-components: always
+  health:
+    rabbit:
+      enabled: ${climbdesk.messaging.rabbitmq.enabled}
