@@ -2,6 +2,9 @@ package dev.climbdesk.event.infrastructure.messaging.rabbitmq
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.event.application.OutboundMessagePublisher
+import dev.climbdesk.event.application.PollingOutboxPublisher
+import dev.climbdesk.event.infrastructure.scheduling.OutboxPublishScheduler
 import org.assertj.core.api.Assertions.assertThat
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
@@ -19,6 +22,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.client.TestRestTemplate
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.http.HttpStatus
+import org.springframework.context.ApplicationContext
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.containers.RabbitMQContainer
@@ -55,6 +59,7 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
     private val rabbitProperties: RabbitProperties,
     private val objectMapper: ObjectMapper,
     private val restTemplate: TestRestTemplate,
+    private val applicationContext: ApplicationContext,
     @param:LocalServerPort private val serverPort: Int,
 ) {
     @BeforeEach
@@ -65,6 +70,13 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
     @AfterEach
     fun tearDown() {
         purgeQueues()
+    }
+
+    @Test
+    fun `publisher disabled leaves polling scheduler and broker publisher inactive`() {
+        assertThat(applicationContext.getBeansOfType(PollingOutboxPublisher::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(OutboundMessagePublisher::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(OutboxPublishScheduler::class.java)).isEmpty()
     }
 
     @Test

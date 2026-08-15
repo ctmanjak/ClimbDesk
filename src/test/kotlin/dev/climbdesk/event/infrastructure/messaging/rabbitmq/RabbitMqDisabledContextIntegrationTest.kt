@@ -1,5 +1,8 @@
 package dev.climbdesk.event.infrastructure.messaging.rabbitmq
 
+import dev.climbdesk.event.application.OutboundMessagePublisher
+import dev.climbdesk.event.application.PollingOutboxPublisher
+import dev.climbdesk.event.infrastructure.scheduling.OutboxPublishScheduler
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.amqp.core.Declarables
@@ -33,9 +36,23 @@ class RabbitMqDisabledContextIntegrationTest @Autowired constructor(
         assertThat(rabbitMqProperties.enabled).isFalse()
         assertThat(rabbitMqProperties.publisherEnabled).isFalse()
         assertThat(rabbitMqProperties.listenerEnabled).isFalse()
+        assertThat(rabbitMqProperties.publisher.pollInterval).hasSeconds(1)
+        assertThat(rabbitMqProperties.publisher.maxPerTick).isEqualTo(20)
+        assertThat(rabbitMqProperties.publisher.maxAttempts).isEqualTo(5)
+        assertThat(rabbitMqProperties.publisher.confirmTimeout).hasSeconds(5)
+        assertThat(rabbitMqProperties.publisher.retryBackoffs)
+            .containsExactly(
+                java.time.Duration.ofSeconds(5),
+                java.time.Duration.ofSeconds(30),
+                java.time.Duration.ofMinutes(2),
+                java.time.Duration.ofMinutes(10),
+            )
         assertThat(rabbitProperties.username).isEqualTo("climbdesk")
         assertThat(rabbitProperties.password).isEqualTo("climbdesk")
         assertThat(applicationContext.getBeansOfType(Declarables::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(PollingOutboxPublisher::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(OutboundMessagePublisher::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(OutboxPublishScheduler::class.java)).isEmpty()
         assertThat(healthContributorRegistry.getContributor("rabbit")).isNull()
     }
 }
