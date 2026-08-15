@@ -39,6 +39,12 @@ climbdesk:
       enabled: ${CLIMBDESK_RABBITMQ_ENABLED:false}
       publisher-enabled: ${CLIMBDESK_RABBITMQ_PUBLISHER_ENABLED:false}
       listener-enabled: ${CLIMBDESK_RABBITMQ_LISTENER_ENABLED:false}
+      publisher:
+        poll-interval: ${CLIMBDESK_RABBITMQ_PUBLISHER_POLL_INTERVAL:1s}
+        max-per-tick: ${CLIMBDESK_RABBITMQ_PUBLISHER_MAX_PER_TICK:20}
+        max-attempts: ${CLIMBDESK_RABBITMQ_PUBLISHER_MAX_ATTEMPTS:5}
+        confirm-timeout: ${CLIMBDESK_RABBITMQ_PUBLISHER_CONFIRM_TIMEOUT:5s}
+        retry-backoffs: ${CLIMBDESK_RABBITMQ_PUBLISHER_RETRY_BACKOFFS:5s,30s,2m,10m}
 
 management:
   endpoints:

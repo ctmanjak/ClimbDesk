@@ -19,6 +19,27 @@ data class OutboxEvent(
     val createdAt: Instant? = null,
     val updatedAt: Instant? = null,
 ) {
+    fun markPublished(publishedAt: Instant): OutboxEvent =
+        copy(
+            status = OutboxEventStatus.PUBLISHED,
+            publishedAt = publishedAt,
+            nextRetryAt = null,
+            lastError = null,
+        )
+
+    fun markFailed(
+        retryCount: Int,
+        nextRetryAt: Instant?,
+        lastError: String,
+    ): OutboxEvent =
+        copy(
+            status = OutboxEventStatus.FAILED,
+            retryCount = retryCount,
+            publishedAt = null,
+            nextRetryAt = nextRetryAt,
+            lastError = lastError,
+        )
+
     companion object {
         fun pending(
             eventType: String,
