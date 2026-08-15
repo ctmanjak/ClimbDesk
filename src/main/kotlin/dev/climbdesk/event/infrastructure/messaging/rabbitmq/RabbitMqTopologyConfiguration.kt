@@ -23,7 +23,11 @@ class RabbitMqTopologyConfiguration {
         val mainExchange = TopicExchange(RabbitMqTopology.MAIN_EXCHANGE, true, false)
         val retryExchange = DirectExchange(RabbitMqTopology.RETRY_EXCHANGE, true, false)
         val deadLetterExchange = DirectExchange(RabbitMqTopology.DEAD_LETTER_EXCHANGE, true, false)
-        val mainQueue = QueueBuilder.durable(RabbitMqTopology.MAIN_QUEUE).build()
+        val mainQueue =
+            QueueBuilder.durable(RabbitMqTopology.MAIN_QUEUE)
+                .deadLetterExchange(RabbitMqTopology.DEAD_LETTER_EXCHANGE)
+                .deadLetterRoutingKey(RabbitMqTopology.DEAD_LETTER_QUEUE)
+                .build()
         val deadLetterQueue = QueueBuilder.durable(RabbitMqTopology.DEAD_LETTER_QUEUE).build()
         val declarables =
             mutableListOf<Declarable>(

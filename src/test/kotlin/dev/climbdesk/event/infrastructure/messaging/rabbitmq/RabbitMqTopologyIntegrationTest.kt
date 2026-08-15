@@ -85,6 +85,11 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
         assertThat(deadLetterExchange["durable"].booleanValue()).isTrue()
 
         assertDurableQueue(RabbitMqTopology.MAIN_QUEUE)
+        val mainQueue = queue(RabbitMqTopology.MAIN_QUEUE)
+        assertThat(mainQueue["arguments"]["x-dead-letter-exchange"].textValue())
+            .isEqualTo(RabbitMqTopology.DEAD_LETTER_EXCHANGE)
+        assertThat(mainQueue["arguments"]["x-dead-letter-routing-key"].textValue())
+            .isEqualTo(RabbitMqTopology.DEAD_LETTER_QUEUE)
         assertBinding(
             RabbitMqTopology.MAIN_EXCHANGE,
             RabbitMqTopology.MAIN_QUEUE,
@@ -200,6 +205,22 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
 
         assertThat(receive(RabbitMqTopology.DEAD_LETTER_QUEUE).body.toString(StandardCharsets.UTF_8))
             .isEqualTo("dead-letter")
+    }
+
+    @Test
+    fun `main queue dead letters expired messages to the dead letter queue`() {
+        rabbitTemplate.convertAndSend(
+            RabbitMqTopology.MAIN_EXCHANGE,
+            RabbitMqTopology.MAIN_ROUTING_KEY,
+            "expired",
+            { message ->
+                message.messageProperties.expiration = "100"
+                message
+            },
+        )
+
+        assertThat(receive(RabbitMqTopology.DEAD_LETTER_QUEUE).body.toString(StandardCharsets.UTF_8))
+            .isEqualTo("expired")
     }
 
     @Test

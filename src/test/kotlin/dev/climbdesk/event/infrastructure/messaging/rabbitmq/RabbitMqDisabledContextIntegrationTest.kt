@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.amqp.core.Declarables
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.actuate.health.HealthContributorRegistry
+import org.springframework.boot.autoconfigure.amqp.RabbitProperties
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationContext
 import org.testcontainers.junit.jupiter.Testcontainers
@@ -24,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers
 class RabbitMqDisabledContextIntegrationTest @Autowired constructor(
     private val applicationContext: ApplicationContext,
     private val rabbitMqProperties: RabbitMqProperties,
+    private val rabbitProperties: RabbitProperties,
     private val healthContributorRegistry: HealthContributorRegistry,
 ) {
     @Test
@@ -31,6 +33,8 @@ class RabbitMqDisabledContextIntegrationTest @Autowired constructor(
         assertThat(rabbitMqProperties.enabled).isFalse()
         assertThat(rabbitMqProperties.publisherEnabled).isFalse()
         assertThat(rabbitMqProperties.listenerEnabled).isFalse()
+        assertThat(rabbitProperties.username).isEqualTo("climbdesk")
+        assertThat(rabbitProperties.password).isEqualTo("climbdesk")
         assertThat(applicationContext.getBeansOfType(Declarables::class.java)).isEmpty()
         assertThat(healthContributorRegistry.getContributor("rabbit")).isNull()
     }

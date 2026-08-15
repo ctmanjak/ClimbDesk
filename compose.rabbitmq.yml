@@ -8,6 +8,12 @@ services:
     ports:
       - "${CLIMBDESK_RABBITMQ_PORT:-5672}:5672"
       - "${CLIMBDESK_RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
 
