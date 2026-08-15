@@ -3,6 +3,7 @@ package dev.climbdesk.event.application
 import dev.climbdesk.event.domain.OutboxEvent
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.Instant
 import kotlin.math.max
 
@@ -15,6 +16,7 @@ open class PollingOutboxPublisher(
     private val outboxMessageMapper: OutboxMessageMapper,
     private val outboundMessagePublisher: OutboundMessagePublisher,
     private val policy: OutboxPublisherPolicy,
+    private val clock: Clock = Clock.systemUTC(),
 ) : OutboxPublishUseCase {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     open override fun publishNext(now: Instant): Boolean {
@@ -33,7 +35,7 @@ open class PollingOutboxPublisher(
         } catch (exception: Exception) {
             recordFailure(
                 outboxEvent = outboxEvent,
-                now = now,
+                failedAt = clock.instant(),
                 reason = "Outbox message mapping failed: ${exception.javaClass.simpleName}",
             )
             return true
@@ -45,16 +47,17 @@ open class PollingOutboxPublisher(
             PublishResult.Failure("Outbound publish failed: ${exception.javaClass.simpleName}")
         }
 
+        val completedAt = clock.instant()
         when (publishResult) {
-            PublishResult.Success -> outboxEventStore.save(outboxEvent.markPublished(now))
-            is PublishResult.Failure -> recordFailure(outboxEvent, now, publishResult.reason)
+            PublishResult.Success -> outboxEventStore.save(outboxEvent.markPublished(completedAt))
+            is PublishResult.Failure -> recordFailure(outboxEvent, completedAt, publishResult.reason)
         }
         return true
     }
 
     private fun recordFailure(
         outboxEvent: OutboxEvent,
-        now: Instant,
+        failedAt: Instant,
         reason: String,
     ) {
         val retryCount = outboxEvent.retryCount + 1
@@ -62,7 +65,7 @@ open class PollingOutboxPublisher(
             if (retryCount >= policy.maxAttempts) {
                 null
             } else {
-                now.plus(policy.retryBackoffs[retryCount - 1])
+                failedAt.plus(policy.retryBackoffs[retryCount - 1])
             }
         outboxEventStore.save(
             outboxEvent.markFailed(

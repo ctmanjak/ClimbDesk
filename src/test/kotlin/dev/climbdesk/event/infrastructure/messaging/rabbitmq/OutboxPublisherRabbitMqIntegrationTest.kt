@@ -78,12 +78,14 @@ class OutboxPublisherRabbitMqIntegrationTest @Autowired constructor(
     fun `publisher records published only after confirmed routed persistent message`() {
         val now = Instant.parse("2026-08-15T00:00:00Z")
         val outboxEvent = savePendingOutbox(now.minusSeconds(1))
+        val startedAt = Instant.now()
 
         assertThat(pollingOutboxPublisher.publishNext(now)).isTrue()
 
+        val completedAt = Instant.now()
         val persisted = outboxEventJpaRepository.findById(outboxEvent.id).orElseThrow()
         assertThat(persisted.status).isEqualTo(OutboxEventStatus.PUBLISHED)
-        assertThat(persisted.publishedAt).isEqualTo(now)
+        assertThat(persisted.publishedAt).isBetween(startedAt, completedAt)
         assertThat(persisted.nextRetryAt).isNull()
         assertThat(persisted.lastError).isNull()
 
@@ -107,14 +109,17 @@ class OutboxPublisherRabbitMqIntegrationTest @Autowired constructor(
         val now = Instant.parse("2026-08-15T00:00:00Z")
         val outboxEvent = savePendingOutbox(now.minusSeconds(1))
         rabbitAdmin.removeBinding(mainBinding())
+        val startedAt = Instant.now()
 
         try {
             assertThat(pollingOutboxPublisher.publishNext(now)).isTrue()
 
+            val completedAt = Instant.now()
             val persisted = outboxEventJpaRepository.findById(outboxEvent.id).orElseThrow()
             assertThat(persisted.status).isEqualTo(OutboxEventStatus.FAILED)
             assertThat(persisted.retryCount).isEqualTo(1)
-            assertThat(persisted.nextRetryAt).isEqualTo(now.plusSeconds(5))
+            assertThat(persisted.nextRetryAt)
+                .isBetween(startedAt.plusSeconds(5), completedAt.plusSeconds(5))
             assertThat(persisted.lastError).startsWith("RabbitMQ mandatory return:")
             assertThat(rabbitTemplate.receive(RabbitMqTopology.MAIN_QUEUE, 200)).isNull()
         } finally {

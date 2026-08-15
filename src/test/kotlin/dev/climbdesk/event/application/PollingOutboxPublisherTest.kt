@@ -9,20 +9,23 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
+import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneOffset
 
 class PollingOutboxPublisherTest {
     @Test
     fun `successful publish records published state only after the outbound result succeeds`() {
-        val now = Instant.parse("2026-08-15T00:00:00Z")
-        val store = FakeStore(event(nextRetryAt = now.minusSeconds(1), lastError = "previous failure", retryCount = 2))
-        val publisher = publisher(store, publishResult = PublishResult.Success)
+        val claimAt = Instant.parse("2026-08-15T00:00:00Z")
+        val completedAt = claimAt.plusSeconds(5)
+        val store = FakeStore(event(nextRetryAt = claimAt.minusSeconds(1), lastError = "previous failure", retryCount = 2))
+        val publisher = publisher(store, publishResult = PublishResult.Success, completedAt = completedAt)
 
-        assertThat(publisher.publishNext(now)).isTrue()
+        assertThat(publisher.publishNext(claimAt)).isTrue()
 
         assertThat(store.event!!.status).isEqualTo(OutboxEventStatus.PUBLISHED)
-        assertThat(store.event!!.publishedAt).isEqualTo(now)
+        assertThat(store.event!!.publishedAt).isEqualTo(completedAt)
         assertThat(store.event!!.retryCount).isEqualTo(2)
         assertThat(store.event!!.nextRetryAt).isNull()
         assertThat(store.event!!.lastError).isNull()
@@ -31,16 +34,17 @@ class PollingOutboxPublisherTest {
     @ParameterizedTest
     @ValueSource(strings = ["confirm NACK", "mandatory return", "confirm timeout", "connection error"])
     fun `broker failure outcomes remain failed and due for retry`(reason: String) {
-        val now = Instant.parse("2026-08-15T00:00:00Z")
+        val claimAt = Instant.parse("2026-08-15T00:00:00Z")
+        val failedAt = claimAt.plusSeconds(5)
         val store = FakeStore(event())
-        val publisher = publisher(store, publishResult = PublishResult.Failure(reason))
+        val publisher = publisher(store, publishResult = PublishResult.Failure(reason), completedAt = failedAt)
 
-        assertThat(publisher.publishNext(now)).isTrue()
+        assertThat(publisher.publishNext(claimAt)).isTrue()
 
         assertThat(store.event!!.status).isEqualTo(OutboxEventStatus.FAILED)
         assertThat(store.event!!.publishedAt).isNull()
         assertThat(store.event!!.retryCount).isEqualTo(1)
-        assertThat(store.event!!.nextRetryAt).isEqualTo(now.plusSeconds(5))
+        assertThat(store.event!!.nextRetryAt).isEqualTo(failedAt.plusSeconds(5))
         assertThat(store.event!!.lastError).isEqualTo(reason)
     }
 
@@ -48,18 +52,23 @@ class PollingOutboxPublisherTest {
     fun `publisher applies every backoff and makes the fifth failure terminal`() {
         val start = Instant.parse("2026-08-15T00:00:00Z")
         val store = FakeStore(event())
-        val publisher = publisher(store, publishResult = PublishResult.Failure("broker unavailable"))
         val attempts =
             listOf(
-                start to start.plusSeconds(5),
-                start.plusSeconds(5) to start.plusSeconds(35),
-                start.plusSeconds(35) to start.plusSeconds(155),
-                start.plusSeconds(155) to start.plusSeconds(755),
-                start.plusSeconds(755) to null,
+                Triple(start, start.plusSeconds(5), start.plusSeconds(10)),
+                Triple(start.plusSeconds(10), start.plusSeconds(10), start.plusSeconds(40)),
+                Triple(start.plusSeconds(40), start.plusSeconds(40), start.plusSeconds(160)),
+                Triple(start.plusSeconds(160), start.plusSeconds(160), start.plusSeconds(760)),
+                Triple(start.plusSeconds(760), start.plusSeconds(760), null),
             )
 
-        attempts.forEachIndexed { index, (now, expectedNextRetryAt) ->
-            assertThat(publisher.publishNext(now)).isTrue()
+        attempts.forEachIndexed { index, (claimAt, failedAt, expectedNextRetryAt) ->
+            val publisher =
+                publisher(
+                    store,
+                    publishResult = PublishResult.Failure("broker unavailable"),
+                    completedAt = failedAt,
+                )
+            assertThat(publisher.publishNext(claimAt)).isTrue()
             assertThat(store.event!!.retryCount).isEqualTo(index + 1)
             assertThat(store.event!!.nextRetryAt).isEqualTo(expectedNextRetryAt)
         }
@@ -79,6 +88,7 @@ class PollingOutboxPublisherTest {
                 outboxMessageMapper = OutboxMessageMapper { error("secret-payload") },
                 outboundMessagePublisher = OutboundMessagePublisher { _, _ -> PublishResult.Success },
                 policy = policy(),
+                clock = fixedClock(now),
             )
 
         assertThat(publisher.publishNext(now)).isTrue()
@@ -112,9 +122,10 @@ class PollingOutboxPublisherTest {
     fun `last error is normalized and truncated to the database limit`() {
         val store = FakeStore(event())
         val reason = "  failure\n" + "x".repeat(1_100)
-        val publisher = publisher(store, publishResult = PublishResult.Failure(reason))
+        val now = Instant.parse("2026-08-15T00:00:00Z")
+        val publisher = publisher(store, publishResult = PublishResult.Failure(reason), completedAt = now)
 
-        publisher.publishNext(Instant.parse("2026-08-15T00:00:00Z"))
+        publisher.publishNext(now)
 
         assertThat(store.event!!.lastError).hasSize(1_000)
         assertThat(store.event!!.lastError).doesNotContain("\n")
@@ -122,10 +133,11 @@ class PollingOutboxPublisherTest {
 
     @Test
     fun `empty claim stops the current scheduler loop`() {
+        val now = Instant.parse("2026-08-15T00:00:00Z")
         val store = FakeStore(null)
-        val publisher = publisher(store, publishResult = PublishResult.Success)
+        val publisher = publisher(store, publishResult = PublishResult.Success, completedAt = now)
 
-        assertThat(publisher.publishNext(Instant.parse("2026-08-15T00:00:00Z"))).isFalse()
+        assertThat(publisher.publishNext(now)).isFalse()
         assertThat(store.saved).isZero()
     }
 
@@ -142,6 +154,7 @@ class PollingOutboxPublisherTest {
     private fun publisher(
         store: FakeStore,
         publishResult: PublishResult,
+        completedAt: Instant,
     ): PollingOutboxPublisher =
         PollingOutboxPublisher(
             outboxEventStore = store,
@@ -156,7 +169,10 @@ class PollingOutboxPublisherTest {
             },
             outboundMessagePublisher = OutboundMessagePublisher { _, _ -> publishResult },
             policy = policy(),
+            clock = fixedClock(completedAt),
         )
+
+    private fun fixedClock(instant: Instant): Clock = Clock.fixed(instant, ZoneOffset.UTC)
 
     private fun policy() =
         OutboxPublisherPolicy(
