@@ -44,6 +44,7 @@ climbdesk:
         max-per-tick: ${CLIMBDESK_RABBITMQ_PUBLISHER_MAX_PER_TICK:20}
         max-attempts: ${CLIMBDESK_RABBITMQ_PUBLISHER_MAX_ATTEMPTS:5}
         confirm-timeout: ${CLIMBDESK_RABBITMQ_PUBLISHER_CONFIRM_TIMEOUT:5s}
+        # retry-backoffs must contain max-attempts minus one entries.
         retry-backoffs: ${CLIMBDESK_RABBITMQ_PUBLISHER_RETRY_BACKOFFS:5s,30s,2m,10m}
 
 management:

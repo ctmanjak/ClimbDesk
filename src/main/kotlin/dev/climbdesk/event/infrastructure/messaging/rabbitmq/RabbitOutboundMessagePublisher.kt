@@ -6,8 +6,10 @@ import dev.climbdesk.event.application.PublishResult
 import org.springframework.amqp.core.Message
 import org.springframework.amqp.core.MessageDeliveryMode
 import org.springframework.amqp.core.MessageProperties
+import org.springframework.amqp.rabbit.connection.CachingConnectionFactory
 import org.springframework.amqp.rabbit.connection.CorrelationData
 import org.springframework.amqp.rabbit.core.RabbitTemplate
+import org.slf4j.LoggerFactory
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -15,6 +17,25 @@ import java.util.concurrent.TimeoutException
 class RabbitOutboundMessagePublisher(
     private val rabbitTemplate: RabbitTemplate,
 ) : OutboundMessagePublisher {
+    init {
+        val connectionFactory = rabbitTemplate.connectionFactory
+        require(connectionFactory is CachingConnectionFactory) {
+            "RabbitMQ publisher requires CachingConnectionFactory: " +
+                "expected=${CachingConnectionFactory::class.java.name}, " +
+                "actual=${connectionFactory.javaClass.name}"
+        }
+        require(connectionFactory.isPublisherConfirms && !connectionFactory.isSimplePublisherConfirms) {
+            "RabbitMQ publisher requires correlated confirms: " +
+                "expected publisherConfirms=true and simplePublisherConfirms=false, " +
+                "actual publisherConfirms=${connectionFactory.isPublisherConfirms} and " +
+                "simplePublisherConfirms=${connectionFactory.isSimplePublisherConfirms}"
+        }
+        val mandatory = rabbitTemplate.isMandatoryFor(VALIDATION_MESSAGE) == true
+        require(mandatory) {
+            "RabbitMQ publisher requires mandatory publishing: expected mandatory=true, actual mandatory=$mandatory"
+        }
+    }
+
     override fun publish(
         message: OutboundMessage,
         confirmTimeout: Duration,
@@ -45,14 +66,23 @@ class RabbitOutboundMessagePublisher(
                 else -> PublishResult.Success
             }
         } catch (exception: TimeoutException) {
-            PublishResult.Failure("RabbitMQ publisher confirm timeout after ${confirmTimeout.toMillis()}ms")
+            logger.error("RabbitMQ publisher confirm timed out", exception)
+            PublishResult.Failure(
+                "RabbitMQ publisher confirm timeout after ${confirmTimeout.toMillis()}ms: ${detail(exception)}",
+            )
         } catch (exception: InterruptedException) {
             Thread.currentThread().interrupt()
-            PublishResult.Failure("RabbitMQ publisher confirm wait interrupted")
+            logger.error("RabbitMQ publisher confirm wait was interrupted", exception)
+            PublishResult.Failure("RabbitMQ publisher confirm wait interrupted: ${detail(exception)}")
         } catch (exception: Exception) {
-            PublishResult.Failure("RabbitMQ publish failed: ${exception.javaClass.simpleName}")
+            logger.error("RabbitMQ publish failed", exception)
+            PublishResult.Failure(
+                "RabbitMQ publish failed: ${exception.javaClass.simpleName}: ${detail(exception)}",
+            )
         }
     }
+
+    private fun detail(exception: Exception): String = exception.message?.takeIf(String::isNotBlank) ?: "no message"
 
     private fun messageProperties(message: OutboundMessage): MessageProperties =
         MessageProperties().apply {
@@ -65,6 +95,8 @@ class RabbitOutboundMessagePublisher(
         }
 
     private companion object {
+        private val logger = LoggerFactory.getLogger(RabbitOutboundMessagePublisher::class.java)
+        private val VALIDATION_MESSAGE = Message(ByteArray(0))
         const val SCHEMA_VERSION_HEADER = "x-schema-version"
         const val PRODUCER_HEADER = "x-producer"
     }

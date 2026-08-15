@@ -29,6 +29,23 @@ class OutboxPublishSchedulerTest {
         assertThat(calls).isEqualTo(3)
     }
 
+    @Test
+    fun `one tick stops when publishing an event throws`() {
+        var calls = 0
+        val publisher = OutboxPublishUseCase {
+            calls += 1
+            if (calls == 2) {
+                error("database status save failed")
+            }
+            true
+        }
+        val scheduler = OutboxPublishScheduler(publisher, policy())
+
+        scheduler.publishDueEvents()
+
+        assertThat(calls).isEqualTo(2)
+    }
+
     private fun policy() =
         OutboxPublisherPolicy(
             pollInterval = Duration.ofSeconds(1),
