@@ -1,5 +1,7 @@
 package dev.climbdesk.notification.infrastructure.persistence
 
+import dev.climbdesk.notification.domain.ReservationNotificationStatus
+import dev.climbdesk.notification.domain.ReservationNotificationType
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -46,12 +48,3 @@ class ReservationNotificationRequestJpaEntity(
     @Column(name = "created_at", nullable = false)
     val createdAt: Instant,
 )
-
-enum class ReservationNotificationType {
-    RESERVATION_CONFIRMED,
-}
-
-enum class ReservationNotificationStatus {
-    READY,
-    SKIPPED_STALE,
-}
