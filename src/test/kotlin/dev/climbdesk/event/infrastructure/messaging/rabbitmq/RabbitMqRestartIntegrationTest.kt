@@ -73,10 +73,12 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         assertThat(correlationData.future.get(5, TimeUnit.SECONDS).isAck).isTrue()
         assertThat(correlationData.returned).isNull()
 
-        stopRabbitMq()
-        connectionFactory.resetConnection()
+        val containerId = rabbitMq.containerId
+        val nodePid = checkNotNull(rabbitMqNodePid())
         try {
-            startRabbitMq()
+            restartRabbitMqNode(nodePid)
+            connectionFactory.resetConnection()
+            assertThat(rabbitMq.containerId).isEqualTo(containerId)
 
             assertDurableTopologyFromBrokerManagementApi()
             await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).untilAsserted {
@@ -148,39 +150,54 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
             .contains(routingKey)
     }
 
-    private fun stopRabbitMq() {
-        val result = rabbitMq.execInContainer("rabbitmqctl", "stop_app")
-        assertThat(result.exitCode).isZero()
-        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).until {
-            !rabbitMqApplicationIsRunning()
-        }
-    }
-
-    private fun startRabbitMq() {
-        val result = rabbitMq.execInContainer("rabbitmqctl", "start_app")
+    private fun restartRabbitMqNode(previousPid: String) {
+        val result = rabbitMq.execInContainer("rabbitmqctl", "shutdown")
         assertThat(result.exitCode).isZero()
         await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200)).until {
-            rabbitMqApplicationIsRunning()
+            rabbitMqNodePid()?.let { it != previousPid } == true
         }
-        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).until {
-            managementApiIsReady()
-        }
+        ensureRabbitMqRunning()
     }
 
     private fun ensureRabbitMqRunning() {
+        if (!rabbitMqContainerIsRunning()) {
+            rabbitMq.dockerClient.startContainerCmd(rabbitMq.containerId).exec()
+        }
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200)).until {
+            rabbitMqContainerIsRunning()
+        }
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200)).until {
+            rabbitMqNodeResponds()
+        }
         if (!rabbitMqApplicationIsRunning()) {
-            rabbitMq.execInContainer("rabbitmqctl", "start_app")
+            val result = rabbitMq.execInContainer("rabbitmqctl", "start_app")
+            assertThat(result.exitCode).isZero()
         }
         await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200)).until {
             rabbitMqApplicationIsRunning()
         }
-        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).until {
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200)).until {
             managementApiIsReady()
         }
     }
 
+    private fun rabbitMqContainerIsRunning(): Boolean =
+        rabbitMq.dockerClient.inspectContainerCmd(rabbitMq.containerId).exec().state.running == true
+
+    private fun rabbitMqNodePid(): String? =
+        runCatching {
+            rabbitMq.execInContainer("pidof", "beam.smp").stdout.trim().takeIf(String::isNotEmpty)
+        }.getOrNull()
+
+    private fun rabbitMqNodeResponds(): Boolean =
+        runCatching {
+            rabbitMq.execInContainer("rabbitmq-diagnostics", "-q", "ping").exitCode == 0
+        }.getOrDefault(false)
+
     private fun rabbitMqApplicationIsRunning(): Boolean =
-        rabbitMq.execInContainer("rabbitmq-diagnostics", "-q", "check_running").exitCode == 0
+        runCatching {
+            rabbitMq.execInContainer("rabbitmq-diagnostics", "-q", "check_running").exitCode == 0
+        }.getOrDefault(false)
 
     private fun managementApiIsReady(): Boolean =
         runCatching { managementResponse("/api/overview").statusCode() == 200 }.getOrDefault(false)
@@ -238,6 +255,11 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         @JvmStatic
         val rabbitMq: RabbitMQContainer =
             RabbitMQContainer(DockerImageName.parse("rabbitmq:4.1-management-alpine"))
+                .withCommand(
+                    "sh",
+                    "-c",
+                    "while true; do docker-entrypoint.sh rabbitmq-server; done",
+                )
 
         @JvmStatic
         @DynamicPropertySource
