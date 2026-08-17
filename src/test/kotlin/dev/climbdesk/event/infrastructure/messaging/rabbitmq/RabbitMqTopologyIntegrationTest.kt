@@ -64,6 +64,7 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
 ) {
     @BeforeEach
     fun setUp() {
+        rabbitTemplate.awaitAmqpReady()
         purgeQueues()
     }
 

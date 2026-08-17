@@ -51,6 +51,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
 ) {
     @BeforeEach
     fun setUp() {
+        rabbitTemplate.awaitAmqpReady()
         purgeQueues()
     }
 
@@ -58,6 +59,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
     fun tearDown() {
         ensureRabbitMqRunning()
         connectionFactory.resetConnection()
+        rabbitTemplate.awaitAmqpReady()
         purgeQueues()
     }
 
@@ -78,6 +80,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         try {
             restartRabbitMqNode(nodePid)
             connectionFactory.resetConnection()
+            rabbitTemplate.awaitAmqpReady()
             assertThat(rabbitMq.containerId).isEqualTo(containerId)
 
             assertDurableTopologyFromBrokerManagementApi()
@@ -93,6 +96,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         } finally {
             ensureRabbitMqRunning()
             connectionFactory.resetConnection()
+            rabbitTemplate.awaitAmqpReady()
         }
     }
 
