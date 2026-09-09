@@ -9,6 +9,10 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
+import org.springframework.amqp.rabbit.connection.CachingConnectionFactory
+import org.springframework.amqp.rabbit.core.RabbitTemplate
+import org.springframework.boot.autoconfigure.amqp.RabbitProperties
+import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer
 
 class ReservationConfirmedEventListenerConditionTest {
     private val contextRunner =
@@ -24,6 +28,8 @@ class ReservationConfirmedEventListenerConditionTest {
             )
             .run { context ->
                 assertThat(context).doesNotHaveBean(ReservationConfirmedEventListener::class.java)
+                assertThat(context).doesNotHaveBean(RabbitNotificationFailurePublisher::class.java)
+                assertThat(context).doesNotHaveBean(ReservationNotificationFailureRouter::class.java)
             }
     }
 
@@ -36,6 +42,8 @@ class ReservationConfirmedEventListenerConditionTest {
             )
             .run { context ->
                 assertThat(context).doesNotHaveBean(ReservationConfirmedEventListener::class.java)
+                assertThat(context).doesNotHaveBean(RabbitNotificationFailurePublisher::class.java)
+                assertThat(context).doesNotHaveBean(ReservationNotificationFailureRouter::class.java)
             }
     }
 
@@ -49,12 +57,29 @@ class ReservationConfirmedEventListenerConditionTest {
             )
             .run { context ->
                 assertThat(context).hasSingleBean(ReservationConfirmedEventListener::class.java)
+                assertThat(context).hasSingleBean(RabbitNotificationFailurePublisher::class.java)
+                assertThat(context).hasSingleBean(ReservationNotificationFailureRouter::class.java)
             }
     }
 
     @Configuration(proxyBeanMethods = false)
-    @Import(ReservationConfirmedEventListener::class)
+    @Import(ReservationConfirmedEventListener::class, ReservationNotificationConsumerConfiguration::class)
     class ListenerTestConfiguration {
+        @Bean
+        fun connectionFactory() = CachingConnectionFactory("localhost").apply {
+            setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED)
+            isPublisherReturns = true
+        }
+
+        @Bean
+        fun rabbitTemplate(factory: CachingConnectionFactory) = RabbitTemplate(factory).apply { setMandatory(true) }
+
+        @Bean
+        fun rabbitMqProperties() = RabbitMqProperties()
+
+        @Bean
+        fun configurer() = SimpleRabbitListenerContainerFactoryConfigurer(RabbitProperties())
+
         @Bean
         fun objectMapper(): ObjectMapper = ObjectMapper()
 
