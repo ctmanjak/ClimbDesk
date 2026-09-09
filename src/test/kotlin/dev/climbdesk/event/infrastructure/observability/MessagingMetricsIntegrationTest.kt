@@ -51,6 +51,8 @@ class MessagingMetricsIntegrationTest @Autowired constructor(
         insert("RABBITMQ", "PENDING", 0, null, now.minusSeconds(120))
         insert("RABBITMQ", "FAILED", 2, now.plusSeconds(30), now.minusSeconds(60))
         insert("RABBITMQ", "FAILED", 5, null, now.minusSeconds(30))
+        insert("RABBITMQ", "FAILED", 5, now.plusSeconds(30), now.minusSeconds(20))
+        insert("RABBITMQ", "FAILED", 2, null, now.minusSeconds(10))
         insert("RABBITMQ", "PUBLISHED", 0, null, now.minusSeconds(20_000))
 
         val registry = SimpleMeterRegistry()
@@ -59,7 +61,7 @@ class MessagingMetricsIntegrationTest @Autowired constructor(
 
         assertThat(outboxGauge(registry, "pending")).isEqualTo(1.0)
         assertThat(outboxGauge(registry, "retry")).isEqualTo(1.0)
-        assertThat(outboxGauge(registry, "terminal")).isEqualTo(1.0)
+        assertThat(outboxGauge(registry, "terminal")).isEqualTo(3.0)
         assertThat(registry.get("climbdesk.messaging.outbox.oldest.unpublished.age").gauge().value()).isEqualTo(120.0)
 
         transactions.executeWithoutResult { status ->
@@ -89,20 +91,24 @@ class MessagingMetricsIntegrationTest @Autowired constructor(
     }
 
     @Test
-    fun `terminal Outbox runbook requeues only one still-terminal RabbitMQ row`() {
+    fun `terminal Outbox runbook uses the current policy and requeues only one stranded RabbitMQ row`() {
         val now = Instant.parse("2026-09-09T08:00:00Z")
+        insert("RABBITMQ", "FAILED", 4, now.plusSeconds(30), now)
+        val loweredLimitEventId = latestEventId()
         insert("RABBITMQ", "FAILED", 5, null, now)
-        val eventId = checkNotNull(jdbcTemplate.queryForObject("select max(id) from outbox_events", Long::class.java))
+        val raisedLimitEventId = latestEventId()
+        insert("RABBITMQ", "FAILED", 2, now.plusSeconds(30), now)
+        val retryableEventId = latestEventId()
 
-        val updated = requeueTerminal(eventId)
-        val secondAttempt = requeueTerminal(eventId)
+        assertThat(requeueTerminal(loweredLimitEventId, 3)).isEqualTo(1)
+        assertThat(requeueTerminal(raisedLimitEventId, 10)).isEqualTo(1)
+        assertThat(requeueTerminal(retryableEventId, 5)).isZero()
+        assertThat(requeueTerminal(loweredLimitEventId, 3)).isZero()
         val row = jdbcTemplate.queryForMap(
             "select status, retry_count, next_retry_at, last_error, published_at from outbox_events where id = ?",
-            eventId,
+            loweredLimitEventId,
         )
 
-        assertThat(updated).isEqualTo(1)
-        assertThat(secondAttempt).isZero()
         assertThat(row["status"]).isEqualTo("PENDING")
         assertThat(row["retry_count"]).isEqualTo(0)
         assertThat(row["next_retry_at"]).isNull()
@@ -110,18 +116,22 @@ class MessagingMetricsIntegrationTest @Autowired constructor(
         assertThat(row["published_at"]).isNull()
     }
 
-    private fun requeueTerminal(eventId: Long): Int = transactions.execute {
+    private fun requeueTerminal(eventId: Long, maxPublishAttempts: Int): Int = transactions.execute {
         jdbcTemplate.update(
             """
                 update outbox_events
                 set status = 'PENDING', retry_count = 0, next_retry_at = null,
                     last_error = null, published_at = null, updated_at = now()
                 where id = ? and publish_target = 'RABBITMQ' and status = 'FAILED'
-                  and retry_count >= 5 and next_retry_at is null
+                  and (retry_count >= ? or next_retry_at is null)
             """.trimIndent(),
             eventId,
+            maxPublishAttempts,
         )
     } ?: 0
+
+    private fun latestEventId(): Long =
+        checkNotNull(jdbcTemplate.queryForObject("select max(id) from outbox_events", Long::class.java))
 
     private fun outboxGauge(registry: SimpleMeterRegistry, state: String): Double =
         registry.get("climbdesk.messaging.outbox.events").tag("state", state).gauge().value()

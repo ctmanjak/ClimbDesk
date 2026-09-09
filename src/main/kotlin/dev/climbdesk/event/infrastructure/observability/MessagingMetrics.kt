@@ -94,7 +94,7 @@ class MessagingMetrics(
         val condition = when (state) {
             "pending" -> "status = 'PENDING'"
             "retry" -> "status = 'FAILED' and retry_count < ? and next_retry_at is not null"
-            else -> "status = 'FAILED' and retry_count >= ? and next_retry_at is null"
+            else -> "status = 'FAILED' and (retry_count >= ? or next_retry_at is null)"
         }
         val arguments = if (state == "pending") emptyArray() else arrayOf(maxPublishAttempts)
         jdbcTemplate.queryForObject(

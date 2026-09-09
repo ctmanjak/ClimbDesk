@@ -17,7 +17,7 @@
 
 | Prometheus metric | 의미와 단위 | label | 갱신/집계 시점 |
 | --- | --- | --- | --- |
-| `climbdesk_messaging_outbox_events` | RabbitMQ 대상 미완료 Outbox 현재 건수(events) | `state=pending\|retry\|terminal` | scrape 때 PostgreSQL 조회. `publish_target=NONE` 제외. retry는 `FAILED`, `retry_count < 5`, `next_retry_at is not null`; terminal은 `FAILED`, `retry_count >= 5`, `next_retry_at is null` |
+| `climbdesk_messaging_outbox_events` | RabbitMQ 대상 미완료 Outbox 현재 건수(events) | `state=pending\|retry\|terminal` | scrape 때 PostgreSQL 조회. `publish_target=NONE` 제외. retry는 `FAILED`, `retry_count < max-attempts`, `next_retry_at is not null`; terminal은 그 외 재시도 불가능한 `FAILED` (`retry_count >= max-attempts` 또는 `next_retry_at is null`) |
 | `climbdesk_messaging_outbox_oldest_unpublished_age_seconds` | RabbitMQ 대상 `status != PUBLISHED` 중 가장 오래된 `occurred_at`의 나이(seconds) | 없음 | scrape 때 조회. 없으면 0 |
 | `climbdesk_messaging_outbox_publish_failures_total` | 실패 상태 저장까지 commit된 publish 시도(cumulative attempts) | 없음 | Outbox transaction commit 후 증가. 현재 backlog gauge가 아님 |
 | `climbdesk_messaging_consumer_duplicates_total` | DB transaction이 duplicate no-op으로 commit된 delivery(cumulative results) | 없음 | handler transaction 반환 후 증가 |
@@ -82,11 +82,13 @@ from reservation_notification_requests
 where source_event_id = :event_id;
 ```
 
-`PENDING`은 아직 시도 전, retry 가능한 `FAILED`는 `retry_count < 5`이고 `next_retry_at is not null`, terminal `FAILED`는 `retry_count >= 5`이고 `next_retry_at is null`이다. 먼저 routing, credential, broker 연결, schema/code/data 원인을 해결한다.
+`PENDING`은 아직 시도 전이다. retry 가능한 `FAILED`는 `retry_count < max-attempts`이고 `next_retry_at is not null`이다. 이 조건을 만족하지 않아 현재 Publisher가 claim할 수 없는 `FAILED`는 terminal이다. 먼저 현재 배포의 `CLIMBDESK_RABBITMQ_PUBLISHER_MAX_ATTEMPTS` 값과 routing, credential, broker 연결, schema/code/data 원인을 확인한다.
 
 ## 5. Terminal Outbox 한 건 requeue
 
 Publisher를 멈출 필요는 없다. terminal 행은 publish claim 대상이 아니며, 아래 transaction이 행을 잠근다. 반드시 eventId 한 건과 현재 terminal 조건을 함께 사용한다.
+
+아래 `:max_publish_attempts`에는 현재 배포의 `CLIMBDESK_RABBITMQ_PUBLISHER_MAX_ATTEMPTS` 값을 사용한다. 설정 변경 전 생성된 행도 현재 claim 조건을 기준으로 판정한다.
 
 ```sql
 begin;
@@ -106,14 +108,13 @@ set status = 'PENDING',
 where id = :event_id
   and publish_target = 'RABBITMQ'
   and status = 'FAILED'
-  and retry_count >= 5
-  and next_retry_at is null;
+  and (retry_count >= :max_publish_attempts or next_retry_at is null);
 
 -- psql은 UPDATE 1인지 확인한다. 0이면 rollback하고 상태를 다시 조사한다.
 commit;
 ```
 
-승인된 Publisher 정책에 따라 원인이 해결된 terminal event에 새 5회 budget을 부여하므로 `retry_count=0`으로 초기화한다. retry 대기 중인 행이나 여러 행을 일괄 초기화하지 않는다. commit 뒤 Outbox가 `PUBLISHED`가 되는지, queue가 drain되는지, processed/notification 결과가 각각 최대 한 건인지 확인한다. 이미 Consumer 처리된 event면 재발행될 수 있지만 DB 멱등성으로 business result는 추가되지 않아야 한다.
+승인된 현재 Publisher 정책에 따라 원인이 해결된 terminal event에 새 retry budget을 부여하므로 `retry_count=0`으로 초기화한다. retry 대기 중인 행이나 여러 행을 일괄 초기화하지 않는다. commit 뒤 Outbox가 `PUBLISHED`가 되는지, queue가 drain되는지, processed/notification 결과가 각각 최대 한 건인지 확인한다. 이미 Consumer 처리된 event면 재발행될 수 있지만 DB 멱등성으로 business result는 추가되지 않아야 한다.
 
 조작자, UTC 시각, eventId, 사전 상태/retryCount, 원인과 해결, 조건부 UPDATE row count, 사후 Outbox/queue/business 결과를 incident/ticket에 남긴다. 범용 DB audit table은 추가하지 않는다.
 
