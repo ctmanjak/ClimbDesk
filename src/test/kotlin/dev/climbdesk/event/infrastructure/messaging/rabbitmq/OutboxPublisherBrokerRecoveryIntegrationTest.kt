@@ -78,7 +78,7 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
 ) {
     @BeforeEach
     fun setUp() {
-        rabbitTemplate.awaitAmqpReady()
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         clearData()
         rabbitAdmin.purgeQueue(RabbitMqTopology.MAIN_QUEUE, false)
     }
@@ -87,7 +87,7 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
     fun tearDown() {
         ensureRabbitMqRunning()
         connectionFactory.resetConnection()
-        rabbitTemplate.awaitAmqpReady()
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         rabbitAdmin.purgeQueue(RabbitMqTopology.MAIN_QUEUE, false)
         clearData()
     }
@@ -120,7 +120,7 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
         } finally {
             ensureRabbitMqRunning()
             connectionFactory.resetConnection()
-            rabbitTemplate.awaitAmqpReady()
+            rabbitTemplate.awaitAmqpReady(rabbitMq)
         }
 
         await().atMost(Duration.ofSeconds(12)).pollInterval(Duration.ofMillis(200)).untilAsserted {

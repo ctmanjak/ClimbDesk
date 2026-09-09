@@ -61,7 +61,7 @@ class OutboxPublisherRabbitMqIntegrationTest @Autowired constructor(
 
     @BeforeEach
     fun setUp() {
-        rabbitTemplate.awaitAmqpReady()
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         outboxEventJpaRepository.deleteAll()
         rabbitAdmin.declareBinding(mainBinding())
         rabbitAdmin.purgeQueue(RabbitMqTopology.MAIN_QUEUE, false)

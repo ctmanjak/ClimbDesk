@@ -93,7 +93,7 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
     @BeforeEach
     fun setUp() {
         listenerContainer().stop()
-        rabbitTemplate.awaitAmqpReady()
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         purgeQueues()
         clearData()
     }
