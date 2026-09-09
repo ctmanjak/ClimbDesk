@@ -79,6 +79,9 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
         assertThat(applicationContext.getBeansOfType(OutboundMessagePublisher::class.java)).isEmpty()
         assertThat(applicationContext.getBeansOfType(OutboxPublishScheduler::class.java)).isEmpty()
         assertThat(applicationContext.getBeansOfType(ReservationConfirmedEventListener::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(RabbitNotificationFailurePublisher::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(ReservationNotificationFailureRouter::class.java)).isEmpty()
+        assertThat(checkNotNull(rabbitAdmin.getQueueInfo(RabbitMqTopology.MAIN_QUEUE)).consumerCount).isZero()
     }
 
     @Test
@@ -110,10 +113,15 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
             RabbitMqTopology.MAIN_ROUTING_KEY,
         )
 
+        val expectedTtls = mapOf(
+            RabbitMqTopology.RETRY_QUEUE_5S to 5_000,
+            RabbitMqTopology.RETRY_QUEUE_30S to 30_000,
+            RabbitMqTopology.RETRY_QUEUE_2M to 120_000,
+        )
         RabbitMqTopology.retryQueues.forEach { retry ->
             val queue = queue(retry.name)
             assertThat(queue["durable"].booleanValue()).isTrue()
-            assertThat(queue["arguments"]["x-message-ttl"].intValue()).isEqualTo(retry.ttl)
+            assertThat(queue["arguments"]["x-message-ttl"].intValue()).isEqualTo(expectedTtls.getValue(retry.name))
             assertThat(queue["arguments"]["x-dead-letter-exchange"].textValue())
                 .isEqualTo(RabbitMqTopology.MAIN_EXCHANGE)
             assertThat(queue["arguments"]["x-dead-letter-routing-key"].textValue())
@@ -122,6 +130,7 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
         }
 
         assertDurableQueue(RabbitMqTopology.DEAD_LETTER_QUEUE)
+        assertThat(queue(RabbitMqTopology.DEAD_LETTER_QUEUE)["arguments"].has("x-dead-letter-exchange")).isFalse()
         assertBinding(
             RabbitMqTopology.DEAD_LETTER_EXCHANGE,
             RabbitMqTopology.DEAD_LETTER_QUEUE,

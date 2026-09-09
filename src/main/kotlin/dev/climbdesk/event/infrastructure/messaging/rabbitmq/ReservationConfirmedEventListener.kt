@@ -20,24 +20,37 @@ import org.springframework.stereotype.Component
 class ReservationConfirmedEventListener(
     private val objectMapper: ObjectMapper,
     private val notificationUseCase: ReservationConfirmedNotificationUseCase,
+    private val failureClassifier: ReservationNotificationFailureClassifier,
+    private val failureRouter: ReservationNotificationFailureRouter,
+    private val failurePublisher: RabbitNotificationFailurePublisher,
 ) {
-    @RabbitListener(id = LISTENER_ID, queues = [RabbitMqTopology.MAIN_QUEUE])
+    @RabbitListener(
+        id = LISTENER_ID,
+        queues = [RabbitMqTopology.MAIN_QUEUE],
+        containerFactory = "reservationNotificationListenerContainerFactory",
+    )
     fun consume(
         message: Message,
         channel: Channel,
     ) {
-        val envelope = deserialize(message.body)
-        validateContract(message, envelope)
+        try {
+            failureRouter.retryCount(message)
+            val envelope = deserialize(message.body)
+            validateContract(message, envelope)
 
-        notificationUseCase.handle(
-            ReservationConfirmedNotificationCommand(
-                eventId = envelope.eventId,
-                reservationId = envelope.payload.reservationId,
-                memberId = envelope.payload.memberId,
-                classSessionId = envelope.payload.classSessionId,
-                memberPassId = envelope.payload.memberPassId,
-            ),
-        )
+            notificationUseCase.handle(
+                ReservationConfirmedNotificationCommand(
+                    eventId = envelope.eventId,
+                    reservationId = envelope.payload.reservationId,
+                    memberId = envelope.payload.memberId,
+                    classSessionId = envelope.payload.classSessionId,
+                    memberPassId = envelope.payload.memberPassId,
+                ),
+            )
+        } catch (exception: Exception) {
+            val category = failureClassifier.classify(exception)
+            failurePublisher.publish(failureRouter.route(message, category, exception))
+        }
         channel.basicAck(message.messageProperties.deliveryTag, false)
     }
 

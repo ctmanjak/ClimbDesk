@@ -7,7 +7,11 @@ import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedEventPay
 import dev.climbdesk.notification.application.ReservationConfirmedNotificationCommand
 import dev.climbdesk.notification.application.ReservationConfirmedNotificationUseCase
 import dev.climbdesk.notification.application.ReservationNotificationHandlingResult
+import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
+import java.time.Clock
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
 import org.springframework.amqp.core.Message
@@ -18,7 +22,11 @@ class ReservationConfirmedEventListenerTest {
     private val objectMapper = jacksonObjectMapper().findAndRegisterModules()
     private val notificationUseCase = Mockito.mock(ReservationConfirmedNotificationUseCase::class.java)
     private val channel = Mockito.mock(Channel::class.java)
-    private val listener = ReservationConfirmedEventListener(objectMapper, notificationUseCase)
+    private val publisher = Mockito.mock(RabbitNotificationFailurePublisher::class.java)
+    private val listener = ReservationConfirmedEventListener(
+        objectMapper, notificationUseCase, ReservationNotificationFailureClassifier(),
+        ReservationNotificationFailureRouter(Clock.systemUTC()), publisher,
+    )
 
     @Test
     fun `listener validates maps handles and acknowledges in that order`() {
@@ -32,6 +40,7 @@ class ReservationConfirmedEventListenerTest {
         val order = Mockito.inOrder(notificationUseCase, channel)
         order.verify(notificationUseCase).handle(command)
         order.verify(channel).basicAck(DELIVERY_TAG, false)
+        Mockito.verifyNoInteractions(publisher)
     }
 
     @Test
@@ -46,23 +55,38 @@ class ReservationConfirmedEventListenerTest {
         val order = Mockito.inOrder(notificationUseCase, channel)
         order.verify(notificationUseCase).handle(command)
         order.verify(channel).basicAck(DELIVERY_TAG, false)
+        Mockito.verifyNoInteractions(publisher)
     }
 
     @Test
-    fun `handler failure propagates without acknowledgement`() {
+    fun `handler failure returns before retry republish and confirmed republish precedes ack`() {
         val envelope = validEnvelope()
-        Mockito.`when`(notificationUseCase.handle(expectedCommand(envelope)))
-            .thenThrow(IllegalStateException("database failure"))
+        val command = expectedCommand(envelope)
+        Mockito.`when`(notificationUseCase.handle(command)).thenThrow(IllegalStateException("database failure"))
+        listener.consume(validMessage(envelope), channel)
+        val order = Mockito.inOrder(notificationUseCase, publisher, channel)
+        order.verify(notificationUseCase).handle(command)
+        order.verify(publisher).publish(Mockito.any(ReservationNotificationFailureRoute::class.java) ?: placeholderRoute())
+        order.verify(channel).basicAck(DELIVERY_TAG, false)
+    }
 
-        assertThatThrownBy { listener.consume(validMessage(envelope), channel) }
-            .isInstanceOf(IllegalStateException::class.java)
-            .hasMessage("database failure")
-
-        Mockito.verify(channel, Mockito.never()).basicAck(Mockito.anyLong(), Mockito.anyBoolean())
+    @ParameterizedTest
+    @EnumSource(FailureRepublishReason::class)
+    fun `unconfirmed retry or DLQ propagates without ack reject or nack`(reason: FailureRepublishReason) {
+        val envelope = validEnvelope()
+        Mockito.`when`(notificationUseCase.handle(expectedCommand(envelope))).thenThrow(IllegalStateException("DB failure"))
+        Mockito.doThrow(FailureRepublishException(reason)).`when`(publisher)
+            .publish(Mockito.any(ReservationNotificationFailureRoute::class.java) ?: placeholderRoute())
+        val corrupt = Message("{".toByteArray(), validMessage(envelope).messageProperties)
+        listOf(validMessage(envelope), corrupt).forEach {
+            assertThatThrownBy { listener.consume(it, channel) }
+                .isInstanceOf(FailureRepublishException::class.java).hasMessageContaining(reason.name)
+        }
+        Mockito.verifyNoInteractions(channel)
     }
 
     @Test
-    fun `invalid envelope and AMQP metadata do not reach the handler or acknowledge`() {
+    fun `invalid envelope and AMQP metadata reach confirmed DLQ before ack without handler`() {
         val envelope = validEnvelope()
         val invalidMessages =
             listOf(
@@ -79,27 +103,49 @@ class ReservationConfirmedEventListenerTest {
                 validMessage(envelope) { messageId = "999" },
                 validMessage(envelope) { type = "reservation.unknown" },
                 validMessage(envelope) { setHeader("x-schema-version", 2) },
+                validMessage(envelope) { setHeader("x-retry-count", -1) },
+                validMessage(envelope) { setHeader("x-retry-count", "0") },
+                validMessage(envelope) { setHeader("x-retry-count", Long.MAX_VALUE) },
             )
 
         invalidMessages.forEach { message ->
-            assertThatThrownBy { listener.consume(message, channel) }
-                .isInstanceOf(InvalidReservationConfirmedMessageException::class.java)
+            listener.consume(message, channel)
         }
-        Mockito.verifyNoInteractions(notificationUseCase, channel)
+        Mockito.verifyNoInteractions(notificationUseCase)
+        val order = Mockito.inOrder(publisher, channel)
+        invalidMessages.forEach { _ ->
+            val route = org.mockito.ArgumentCaptor.forClass(ReservationNotificationFailureRoute::class.java)
+            order.verify(publisher).publish(route.capture() ?: placeholderRoute())
+            assertThat(route.value.routingKey).isEqualTo(RabbitMqTopology.DEAD_LETTER_QUEUE)
+            order.verify(channel).basicAck(DELIVERY_TAG, false)
+        }
     }
 
     @Test
-    fun `corrupt JSON is rejected without exposing its content or acknowledging`() {
+    fun `corrupt JSON reaches confirmed DLQ without exposing its content`() {
         val message = validMessage(validEnvelope()).let {
             Message("{\"email\":\"sensitive@example.com\"".toByteArray(), it.messageProperties)
         }
 
-        assertThatThrownBy { listener.consume(message, channel) }
-            .isInstanceOf(InvalidReservationConfirmedMessageException::class.java)
-            .hasMessage("Invalid reservation confirmed event JSON")
-            .hasMessageNotContaining("sensitive@example.com")
-        Mockito.verifyNoInteractions(notificationUseCase, channel)
+        listener.consume(message, channel)
+        val route = org.mockito.ArgumentCaptor.forClass(ReservationNotificationFailureRoute::class.java)
+        val order = Mockito.inOrder(publisher, channel)
+        order.verify(publisher).publish(route.capture() ?: placeholderRoute())
+        assertThat(route.value.routingKey).isEqualTo(RabbitMqTopology.DEAD_LETTER_QUEUE)
+        assertThat(route.value.message.messageProperties.headers.toString()).doesNotContain("sensitive@example.com")
+        order.verify(channel).basicAck(DELIVERY_TAG, false)
+        Mockito.verifyNoInteractions(notificationUseCase)
     }
+
+    @Test
+    fun `ack failure after handler return propagates without failure routing`() {
+        Mockito.doThrow(java.io.IOException("channel closed")).`when`(channel).basicAck(DELIVERY_TAG, false)
+        assertThatThrownBy { listener.consume(validMessage(validEnvelope()), channel) }
+            .isInstanceOf(java.io.IOException::class.java)
+        Mockito.verifyNoInteractions(publisher)
+    }
+
+    private fun placeholderRoute() = ReservationNotificationFailureRoute("", "", Message(ByteArray(0)))
 
     private fun validMessage(
         envelope: ReservationConfirmedEventEnvelopeV1,
