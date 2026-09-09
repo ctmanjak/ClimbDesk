@@ -53,6 +53,7 @@ class RabbitMqDisabledContextIntegrationTest @Autowired constructor(
         assertThat(applicationContext.getBeansOfType(PollingOutboxPublisher::class.java)).isEmpty()
         assertThat(applicationContext.getBeansOfType(OutboundMessagePublisher::class.java)).isEmpty()
         assertThat(applicationContext.getBeansOfType(OutboxPublishScheduler::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(ReservationConfirmedEventListener::class.java)).isEmpty()
         assertThat(healthContributorRegistry.getContributor("rabbit")).isNull()
     }
 }

@@ -64,6 +64,7 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
 ) {
     @BeforeEach
     fun setUp() {
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         purgeQueues()
     }
 
@@ -77,6 +78,7 @@ class RabbitMqTopologyIntegrationTest @Autowired constructor(
         assertThat(applicationContext.getBeansOfType(PollingOutboxPublisher::class.java)).isEmpty()
         assertThat(applicationContext.getBeansOfType(OutboundMessagePublisher::class.java)).isEmpty()
         assertThat(applicationContext.getBeansOfType(OutboxPublishScheduler::class.java)).isEmpty()
+        assertThat(applicationContext.getBeansOfType(ReservationConfirmedEventListener::class.java)).isEmpty()
     }
 
     @Test

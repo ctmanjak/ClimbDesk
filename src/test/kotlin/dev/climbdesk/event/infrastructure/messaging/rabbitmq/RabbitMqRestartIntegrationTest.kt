@@ -3,6 +3,7 @@ package dev.climbdesk.event.infrastructure.messaging.rabbitmq
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -51,6 +52,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
 ) {
     @BeforeEach
     fun setUp() {
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         purgeQueues()
     }
 
@@ -58,6 +60,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
     fun tearDown() {
         ensureRabbitMqRunning()
         connectionFactory.resetConnection()
+        rabbitTemplate.awaitAmqpReady(rabbitMq)
         purgeQueues()
     }
 
@@ -78,6 +81,7 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         try {
             restartRabbitMqNode(nodePid)
             connectionFactory.resetConnection()
+            rabbitTemplate.awaitAmqpReady(rabbitMq)
             assertThat(rabbitMq.containerId).isEqualTo(containerId)
 
             assertDurableTopologyFromBrokerManagementApi()
@@ -93,6 +97,30 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         } finally {
             ensureRabbitMqRunning()
             connectionFactory.resetConnection()
+            rabbitTemplate.awaitAmqpReady(rabbitMq)
+        }
+    }
+
+    @Test
+    fun `AMQP readiness timeout reports broker diagnostics`() {
+        val result = rabbitMq.execInContainer("rabbitmqctl", "stop_app")
+        assertThat(result.exitCode).isZero()
+        connectionFactory.resetConnection()
+
+        try {
+            assertThatThrownBy {
+                rabbitTemplate.awaitAmqpReady(rabbitMq, Duration.ofMillis(500))
+            }.isInstanceOf(AssertionError::class.java)
+                .hasMessageContaining("RabbitMQ AMQP did not become ready within 500 ms")
+                .hasMessageContaining("Last AMQP error: AmqpConnectException:")
+                .hasMessageContaining("Container state:")
+                .hasMessageContaining("running=true")
+                .hasMessageContaining("RabbitMQ logs (last 200 lines):")
+                .hasMessageContaining("Server startup complete")
+        } finally {
+            ensureRabbitMqRunning()
+            connectionFactory.resetConnection()
+            rabbitTemplate.awaitAmqpReady(rabbitMq)
         }
     }
 
