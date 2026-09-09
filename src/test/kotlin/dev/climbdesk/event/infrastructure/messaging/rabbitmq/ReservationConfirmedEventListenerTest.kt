@@ -139,8 +139,11 @@ class ReservationConfirmedEventListenerTest {
 
     @Test
     fun `ack failure after handler return propagates without failure routing`() {
+        val envelope = validEnvelope()
+        Mockito.`when`(notificationUseCase.handle(expectedCommand(envelope)))
+            .thenReturn(ReservationNotificationHandlingResult.PROCESSED)
         Mockito.doThrow(java.io.IOException("channel closed")).`when`(channel).basicAck(DELIVERY_TAG, false)
-        assertThatThrownBy { listener.consume(validMessage(validEnvelope()), channel) }
+        assertThatThrownBy { listener.consume(validMessage(envelope), channel) }
             .isInstanceOf(java.io.IOException::class.java)
         Mockito.verifyNoInteractions(publisher)
     }

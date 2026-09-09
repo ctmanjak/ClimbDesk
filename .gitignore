@@ -46,5 +46,6 @@ bin/
 
 ### Environment variables ###
 .env
+ops/prometheus/climbdesk-token
 .env.*
 !.env.example

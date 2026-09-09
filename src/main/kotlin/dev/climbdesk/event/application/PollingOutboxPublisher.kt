@@ -1,6 +1,7 @@
 package dev.climbdesk.event.application
 
 import dev.climbdesk.event.domain.OutboxEvent
+import org.slf4j.LoggerFactory
 import org.springframework.transaction.annotation.Propagation
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -17,6 +18,7 @@ open class PollingOutboxPublisher(
     private val outboundMessagePublisher: OutboundMessagePublisher,
     private val policy: OutboxPublisherPolicy,
     private val clock: Clock = Clock.systemUTC(),
+    private val observation: MessagingObservation = NoOpMessagingObservation,
 ) : OutboxPublishUseCase {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     open override fun publishNext(now: Instant): Boolean {
@@ -31,6 +33,8 @@ open class PollingOutboxPublisher(
                     lastError = sanitize(exception.message ?: "Unsupported Outbox contract"),
                 ),
             )
+            observation.outboxPublishFailed()
+            logger.warn("Outbox publish terminal failure: eventId={} category=unsupported_contract", outboxEvent.id)
             return true
         } catch (exception: Exception) {
             recordFailure(
@@ -74,6 +78,13 @@ open class PollingOutboxPublisher(
                 lastError = sanitize(reason),
             ),
         )
+        observation.outboxPublishFailed()
+        logger.warn(
+            "Outbox publish attempt failed: eventId={} retryCount={} terminal={}",
+            outboxEvent.id,
+            retryCount,
+            nextRetryAt == null,
+        )
     }
 
     private fun sanitize(reason: String): String =
@@ -82,5 +93,6 @@ open class PollingOutboxPublisher(
     private companion object {
         const val MAX_LAST_ERROR_LENGTH = 1_000
         val WHITESPACE = Regex("\\s+")
+        val logger = LoggerFactory.getLogger(PollingOutboxPublisher::class.java)
     }
 }

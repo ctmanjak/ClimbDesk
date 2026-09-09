@@ -1,6 +1,8 @@
 package dev.climbdesk.event.infrastructure.messaging.rabbitmq
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.climbdesk.event.application.MessagingObservation
+import dev.climbdesk.event.application.NoOpMessagingObservation
 import dev.climbdesk.notification.application.ReservationConfirmedNotificationUseCase
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -86,5 +88,8 @@ class ReservationConfirmedEventListenerConditionTest {
         @Bean
         fun notificationUseCase(): ReservationConfirmedNotificationUseCase =
             Mockito.mock(ReservationConfirmedNotificationUseCase::class.java)
+
+        @Bean
+        fun messagingObservation(): MessagingObservation = NoOpMessagingObservation
     }
 }

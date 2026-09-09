@@ -20,6 +20,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-amqp")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
@@ -40,4 +41,11 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
+}
+
+tasks.register<JavaExec>("dlqReplayOne") {
+    group = "operations"
+    description = "Inspect or safely replay the single message at the head of the reservation notification DLQ"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = "dev.climbdesk.event.infrastructure.messaging.rabbitmq.DlqSingleMessageReplayCommand"
 }

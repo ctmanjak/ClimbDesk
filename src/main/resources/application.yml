@@ -46,12 +46,16 @@ climbdesk:
         confirm-timeout: ${CLIMBDESK_RABBITMQ_PUBLISHER_CONFIRM_TIMEOUT:5s}
         # retry-backoffs must contain max-attempts minus one entries.
         retry-backoffs: ${CLIMBDESK_RABBITMQ_PUBLISHER_RETRY_BACKOFFS:5s,30s,2m,10m}
+      observability:
+        management-base-url: ${CLIMBDESK_RABBITMQ_MANAGEMENT_BASE_URL:http://localhost:15672}
+        sample-interval: ${CLIMBDESK_RABBITMQ_METRICS_SAMPLE_INTERVAL:5s}
+        request-timeout: ${CLIMBDESK_RABBITMQ_METRICS_REQUEST_TIMEOUT:2s}
 
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       probes:

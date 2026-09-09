@@ -11,6 +11,8 @@ import dev.climbdesk.event.application.PollingOutboxPublisher
 import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedEventEnvelopeV1
 import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedEventPayloadV1
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
+import dev.climbdesk.event.infrastructure.observability.RabbitMqQueueMetrics
+import io.micrometer.core.instrument.MeterRegistry
 import dev.climbdesk.event.infrastructure.persistence.ProcessedEventJpaRepository
 import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
@@ -64,6 +66,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 
 @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension::class)
 @Testcontainers(disabledWithoutDocker = true)
@@ -74,6 +77,7 @@ import java.util.concurrent.atomic.AtomicReference
         "climbdesk.messaging.rabbitmq.publisher-enabled=false",
         "climbdesk.messaging.rabbitmq.listener-enabled=true",
         "climbdesk.messaging.rabbitmq.publisher.poll-interval=1h",
+        "climbdesk.messaging.rabbitmq.observability.sample-interval=1h",
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///reservation-notification-retry-rabbitmq",
         "spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
@@ -96,6 +100,8 @@ class ReservationNotificationRetryRabbitMqIntegrationTest @Autowired constructor
     private val memberPassRepository: MemberPassJpaRepository,
     private val passProductRepository: PassProductJpaRepository,
     private val memberRepository: MemberJpaRepository,
+    private val queueMetrics: RabbitMqQueueMetrics,
+    private val meterRegistry: MeterRegistry,
 ) {
     @BeforeEach
     fun setUp() {
@@ -333,6 +339,56 @@ class ReservationNotificationRetryRabbitMqIntegrationTest @Autowired constructor
     }
 
     @Test
+    fun `ten unconfirmed failure republishes saturate prefetch then recover by binding repair and listener restart`() {
+        val original = message(savedEnvelope())
+        val attempts = AtomicInteger()
+        val failing = AtomicBoolean(true)
+        failStore {
+            attempts.incrementAndGet()
+            if (failing.get()) throw TransientDataAccessResourceException("private@example.com")
+        }
+        val binding = retryBinding()
+        val failedBefore = counter("climbdesk.messaging.consumer.failure.republish.failures", "retry")
+        val confirmedBefore = counter("climbdesk.messaging.consumer.failure.republish.confirmed", "retry")
+        rabbitAdmin.removeBinding(binding)
+        try {
+            repeat(10) { sendMain(original) }
+            listenerContainer().start()
+
+            await().atMost(Duration.ofSeconds(15)).pollInterval(Duration.ofMillis(200)).untilAsserted {
+                assertThat(attempts.get()).isEqualTo(10)
+                queueMetrics.refresh()
+                assertThat(queueGauge("climbdesk.messaging.rabbitmq.queue.unacknowledged")).isEqualTo(10.0)
+                assertThat(counter("climbdesk.messaging.consumer.failure.republish.failures", "retry") - failedBefore)
+                    .isEqualTo(10.0)
+                assertThat(counter("climbdesk.messaging.consumer.failure.republish.confirmed", "retry") - confirmedBefore)
+                    .isZero()
+            }
+            await().during(Duration.ofMillis(500)).atMost(Duration.ofSeconds(2)).untilAsserted {
+                assertThat(attempts.get()).isEqualTo(10)
+            }
+
+            listenerContainer().stop()
+            rabbitAdmin.declareBinding(binding)
+            failing.set(false)
+            listenerContainer().start()
+
+            await().atMost(Duration.ofSeconds(15)).pollInterval(Duration.ofMillis(200)).untilAsserted {
+                queueMetrics.refresh()
+                assertThat(queueGauge("climbdesk.messaging.rabbitmq.queue.unacknowledged")).isZero()
+                assertThat(processedEventRepository.count()).isEqualTo(1)
+                assertThat(notificationRequestRepository.count()).isEqualTo(1)
+                assertQueuesEmpty()
+            }
+            assertThat(attempts.get()).isEqualTo(11)
+            assertThat(notificationRequestRepository.findAll().single().sourceEventId).isEqualTo(EVENT_ID)
+        } finally {
+            listenerContainer().stop()
+            rabbitAdmin.declareBinding(binding)
+        }
+    }
+
+    @Test
     fun `confirmed retry then connection loss before ACK creates duplicates absorbed by DB constraints`() {
         val original = message(savedEnvelope())
         val attempts = AtomicInteger()
@@ -384,6 +440,12 @@ class ReservationNotificationRetryRabbitMqIntegrationTest @Autowired constructor
             1, 1, 1, ReservationNotificationType.RESERVATION_CONFIRMED, ReservationNotificationStatus.READY, Instant.now(),
         ))
     }
+
+    private fun counter(name: String, destination: String): Double =
+        meterRegistry.find(name).tag("destination", destination).counter()?.count() ?: 0.0
+
+    private fun queueGauge(name: String): Double =
+        meterRegistry.get(name).tag("queue", "main").gauge().value()
 
     private fun savedEnvelope(): ReservationConfirmedEventEnvelopeV1 {
         val ids = savePrerequisites()
@@ -591,6 +653,9 @@ class ReservationNotificationRetryRabbitMqIntegrationTest @Autowired constructor
             registry.add("spring.rabbitmq.username", rabbitMq::getAdminUsername)
             registry.add("spring.rabbitmq.password", rabbitMq::getAdminPassword)
             registry.add("spring.rabbitmq.virtual-host") { "/" }
+            registry.add("climbdesk.messaging.rabbitmq.observability.management-base-url") {
+                "http://${rabbitMq.host}:${rabbitMq.getMappedPort(15672)}"
+            }
         }
     }
 }
