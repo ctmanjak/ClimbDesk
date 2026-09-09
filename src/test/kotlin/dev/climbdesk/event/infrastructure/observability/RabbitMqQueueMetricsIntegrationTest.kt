@@ -7,25 +7,42 @@ import dev.climbdesk.event.infrastructure.messaging.rabbitmq.RabbitMqTopology
 import dev.climbdesk.event.infrastructure.messaging.rabbitmq.DlqSingleMessageReplayCommand
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.awaitility.Awaitility.await
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito
 import org.testcontainers.containers.RabbitMQContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.utility.DockerImageName
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory
 import org.springframework.amqp.rabbit.core.RabbitTemplate
+import java.io.IOException
 import java.time.Duration
 
 @Testcontainers(disabledWithoutDocker = true)
 class RabbitMqQueueMetricsIntegrationTest {
+    @BeforeEach
+    fun setUp() {
+        connectionFactory().newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                allQueues.forEach { queue ->
+                    channel.queueDeclare(queue, true, false, false, emptyMap())
+                    channel.queuePurge(queue)
+                }
+            }
+        }
+    }
+
     @Test
     fun `management metrics distinguish prefetch saturation from cumulative failures and record drain`() {
         connectionFactory().newConnection().use { connection ->
             connection.createChannel().use { channel ->
-                allQueues.forEach { channel.queueDeclare(it, true, false, false, emptyMap()) }
                 repeat(10) { channel.basicPublish("", RabbitMqTopology.MAIN_QUEUE, null, "{}".toByteArray()) }
-                repeat(10) { assertThat(channel.basicGet(RabbitMqTopology.MAIN_QUEUE, false)).isNotNull() }
+                val lastDeliveryTag = List(10) {
+                    checkNotNull(channel.basicGet(RabbitMqTopology.MAIN_QUEUE, false)).envelope.deliveryTag
+                }.last()
 
                 val registry = SimpleMeterRegistry()
                 val metrics = queueMetrics()
@@ -36,7 +53,7 @@ class RabbitMqQueueMetricsIntegrationTest {
                     assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.unacknowledged", "main")).isEqualTo(10.0)
                 }
 
-                channel.basicAck(10, true)
+                channel.basicAck(lastDeliveryTag, true)
                 await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).untilAsserted {
                     metrics.refresh()
                     assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.depth", "main")).isZero()
@@ -52,13 +69,11 @@ class RabbitMqQueueMetricsIntegrationTest {
         connectionFactory().newConnection().use { connection ->
             connection.createChannel().use { channel ->
                 channel.exchangeDeclare(RabbitMqTopology.MAIN_EXCHANGE, "topic", true)
-                channel.queueDeclare(RabbitMqTopology.MAIN_QUEUE, true, false, false, emptyMap())
                 channel.queueBind(
                     RabbitMqTopology.MAIN_QUEUE,
                     RabbitMqTopology.MAIN_EXCHANGE,
                     RabbitMqTopology.MAIN_ROUTING_KEY,
                 )
-                channel.queueDeclare(RabbitMqTopology.DEAD_LETTER_QUEUE, true, false, false, emptyMap())
                 val properties = AMQP.BasicProperties.Builder()
                     .messageId("701")
                     .type("reservation.confirmed")
@@ -88,6 +103,45 @@ class RabbitMqQueueMetricsIntegrationTest {
                 assertThat(replay.body).isEqualTo("{}".toByteArray())
                 assertThat(replay.props.headers["x-retry-count"]).isEqualTo(3)
                 assertThat(replay.props.headers["x-failure-category"].toString()).isEqualTo("UNKNOWN")
+            }
+        }
+    }
+
+    @Test
+    fun `DLQ replay ack failure propagates without attempting to nack`() {
+        connectionFactory().newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                channel.exchangeDeclare(RabbitMqTopology.MAIN_EXCHANGE, "topic", true)
+                channel.queueBind(
+                    RabbitMqTopology.MAIN_QUEUE,
+                    RabbitMqTopology.MAIN_EXCHANGE,
+                    RabbitMqTopology.MAIN_ROUTING_KEY,
+                )
+                channel.basicPublish("", RabbitMqTopology.DEAD_LETTER_QUEUE, null, "{}".toByteArray())
+                val original = checkNotNull(channel.basicGet(RabbitMqTopology.DEAD_LETTER_QUEUE, false))
+                val ackFailingChannel = Mockito.spy(channel)
+                Mockito.doThrow(IOException("ack failed")).`when`(ackFailingChannel)
+                    .basicAck(original.envelope.deliveryTag, false)
+                val publisherFactory = CachingConnectionFactory(rabbitMq.host, rabbitMq.amqpPort).apply {
+                    setUsername(rabbitMq.adminUsername)
+                    setPassword(rabbitMq.adminPassword)
+                    setVirtualHost("/")
+                    setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED)
+                    isPublisherReturns = true
+                }
+                try {
+                    val template = RabbitTemplate(publisherFactory).apply { setMandatory(true) }
+                    assertThatThrownBy {
+                        DlqSingleMessageReplayCommand.replayAndAcknowledge(ackFailingChannel, original, template)
+                    }.isInstanceOf(IOException::class.java)
+                    Mockito.verify(ackFailingChannel, Mockito.never()).basicNack(
+                        Mockito.anyLong(),
+                        Mockito.anyBoolean(),
+                        Mockito.anyBoolean(),
+                    )
+                } finally {
+                    publisherFactory.destroy()
+                }
             }
         }
     }

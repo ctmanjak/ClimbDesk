@@ -77,6 +77,7 @@ import java.util.concurrent.atomic.AtomicBoolean
         "climbdesk.messaging.rabbitmq.publisher-enabled=false",
         "climbdesk.messaging.rabbitmq.listener-enabled=true",
         "climbdesk.messaging.rabbitmq.publisher.poll-interval=1h",
+        "climbdesk.messaging.rabbitmq.observability.sample-interval=1h",
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///reservation-notification-retry-rabbitmq",
         "spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",

@@ -55,6 +55,7 @@ object DlqSingleMessageReplayCommand {
         delivery: GetResponse,
         rabbitTemplate: RabbitTemplate,
     ) {
+        val deliveryTag = delivery.envelope.deliveryTag
         val correlation = CorrelationData()
         val messageProperties = DefaultMessagePropertiesConverter().toMessageProperties(
             delivery.props,
@@ -71,13 +72,13 @@ object DlqSingleMessageReplayCommand {
             val confirm = correlation.future.get(CONFIRM_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             check(confirm.isAck) { "Replay received publisher NACK" }
             check(correlation.returned == null) { "Replay was returned as unroutable" }
-            channel.basicAck(delivery.envelope.deliveryTag, false)
         } catch (exception: Exception) {
             if (channel.isOpen) {
-                channel.basicNack(delivery.envelope.deliveryTag, false, true)
+                channel.basicNack(deliveryTag, false, true)
             }
             throw exception
         }
+        channel.basicAck(deliveryTag, false)
     }
 
     private fun validatedEventId(delivery: GetResponse): Long =
