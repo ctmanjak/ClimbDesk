@@ -13,11 +13,13 @@ import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedOutboxMe
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventStoreAdapter
 import dev.climbdesk.event.infrastructure.scheduling.OutboxPublishScheduler
+import dev.climbdesk.event.infrastructure.scheduling.OUTBOX_PUBLISH_SCHEDULER_BEAN_NAME
 import org.springframework.amqp.rabbit.core.RabbitTemplate
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.scheduling.annotation.EnableScheduling
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(
@@ -75,6 +77,12 @@ class OutboxPublisherConfiguration {
     havingValue = "true",
 )
 class OutboxPublisherSchedulingConfiguration {
+    @Bean(name = [OUTBOX_PUBLISH_SCHEDULER_BEAN_NAME])
+    fun outboxPublisherTaskScheduler() = ThreadPoolTaskScheduler().apply {
+        poolSize = 1
+        setThreadNamePrefix("outbox-publisher-")
+    }
+
     @Bean
     fun outboxPublishScheduler(
         pollingOutboxPublisher: OutboxPublishUseCase,
