@@ -9,6 +9,7 @@ data class RabbitMqProperties(
     val publisherEnabled: Boolean = false,
     val listenerEnabled: Boolean = false,
     val publisher: Publisher = Publisher(),
+    val observability: Observability = Observability(),
 ) {
     data class Publisher(
         val pollInterval: Duration = Duration.ofSeconds(1),
@@ -22,5 +23,11 @@ data class RabbitMqProperties(
                 Duration.ofMinutes(2),
                 Duration.ofMinutes(10),
             ),
+    )
+
+    data class Observability(
+        val managementBaseUrl: String = "http://localhost:15672",
+        val sampleInterval: Duration = Duration.ofSeconds(5),
+        val requestTimeout: Duration = Duration.ofSeconds(2),
     )
 }

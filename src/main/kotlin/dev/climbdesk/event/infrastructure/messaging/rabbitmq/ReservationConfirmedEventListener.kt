@@ -4,12 +4,16 @@ import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.rabbitmq.client.Channel
 import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedEventEnvelopeV1
+import dev.climbdesk.event.application.MessagingObservation
+import dev.climbdesk.event.application.NoOpMessagingObservation
 import dev.climbdesk.notification.application.ReservationConfirmedNotificationCommand
+import dev.climbdesk.notification.application.ReservationNotificationHandlingResult
 import dev.climbdesk.notification.application.ReservationConfirmedNotificationUseCase
 import org.springframework.amqp.core.Message
 import org.springframework.amqp.rabbit.annotation.RabbitListener
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
+import org.slf4j.LoggerFactory
 
 @Component
 @ConditionalOnProperty(
@@ -23,6 +27,7 @@ class ReservationConfirmedEventListener(
     private val failureClassifier: ReservationNotificationFailureClassifier,
     private val failureRouter: ReservationNotificationFailureRouter,
     private val failurePublisher: RabbitNotificationFailurePublisher,
+    private val observation: MessagingObservation = NoOpMessagingObservation,
 ) {
     @RabbitListener(
         id = LISTENER_ID,
@@ -38,7 +43,7 @@ class ReservationConfirmedEventListener(
             val envelope = deserialize(message.body)
             validateContract(message, envelope)
 
-            notificationUseCase.handle(
+            val result = notificationUseCase.handle(
                 ReservationConfirmedNotificationCommand(
                     eventId = envelope.eventId,
                     reservationId = envelope.payload.reservationId,
@@ -47,6 +52,11 @@ class ReservationConfirmedEventListener(
                     memberPassId = envelope.payload.memberPassId,
                 ),
             )
+            when (result) {
+                ReservationNotificationHandlingResult.PROCESSED -> observation.consumerProcessed(envelope.occurredAt)
+                ReservationNotificationHandlingResult.DUPLICATE -> observation.consumerDuplicate()
+            }
+            logger.info("Reservation notification delivery committed: eventId={} result={}", envelope.eventId, result)
         } catch (exception: Exception) {
             val category = failureClassifier.classify(exception)
             failurePublisher.publish(failureRouter.route(message, category, exception))
@@ -98,6 +108,7 @@ class ReservationConfirmedEventListener(
         private const val AGGREGATE_TYPE = "Reservation"
         private const val SCHEMA_VERSION = 1
         private const val SCHEMA_VERSION_HEADER = "x-schema-version"
+        private val logger = LoggerFactory.getLogger(ReservationConfirmedEventListener::class.java)
     }
 }
 

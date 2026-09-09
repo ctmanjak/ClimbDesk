@@ -1,0 +1,27 @@
+groups:
+  - name: climbdesk-messaging
+    rules:
+      - alert: ClimbDeskReservationConsumerPrefetchSaturated
+        expr: >-
+          climbdesk_messaging_rabbitmq_queue_unacknowledged{queue="main"} >= 10
+          and on() (((sum(increase(climbdesk_messaging_consumer_processing_latency_seconds_count[2m])) or vector(0))
+          + (sum(increase(climbdesk_messaging_consumer_duplicates_total[2m])) or vector(0))) == 0)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reservation notification consumer is stalled at its prefetch limit
+      - alert: ClimbDeskTerminalOutboxPresent
+        expr: climbdesk_messaging_outbox_events{state="terminal"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Terminal RabbitMQ-targeted Outbox events require investigation
+      - alert: ClimbDeskReservationNotificationDlqPresent
+        expr: climbdesk_messaging_rabbitmq_queue_depth{queue="dlq"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Reservation notification DLQ contains messages

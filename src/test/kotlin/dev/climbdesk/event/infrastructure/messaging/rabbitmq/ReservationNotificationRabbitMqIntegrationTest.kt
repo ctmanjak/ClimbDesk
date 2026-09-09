@@ -11,6 +11,7 @@ import dev.climbdesk.event.application.PollingOutboxPublisher
 import dev.climbdesk.event.domain.OutboxEventStatus
 import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedEventEnvelopeV1
 import dev.climbdesk.event.infrastructure.messaging.ReservationConfirmedEventPayloadV1
+import dev.climbdesk.event.infrastructure.observability.RabbitMqQueueMetrics
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
 import dev.climbdesk.event.infrastructure.persistence.ProcessedEventJpaRepository
 import dev.climbdesk.member.domain.MemberStatus
@@ -32,6 +33,7 @@ import dev.climbdesk.reservation.application.ReservationApplicationService
 import dev.climbdesk.reservation.domain.ReservationStatus
 import dev.climbdesk.reservation.infrastructure.persistence.ReservationJpaEntity
 import dev.climbdesk.reservation.infrastructure.persistence.ReservationJpaRepository
+import io.micrometer.core.instrument.MeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
@@ -65,6 +67,7 @@ import java.util.concurrent.atomic.AtomicReference
         "climbdesk.messaging.rabbitmq.publisher-enabled=true",
         "climbdesk.messaging.rabbitmq.listener-enabled=true",
         "climbdesk.messaging.rabbitmq.publisher.poll-interval=1h",
+        "climbdesk.messaging.rabbitmq.observability.sample-interval=1h",
         "spring.rabbitmq.listener.simple.auto-startup=false",
         "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///reservation-notification-rabbitmq",
         "spring.datasource.driver-class-name=org.testcontainers.jdbc.ContainerDatabaseDriver",
@@ -79,6 +82,8 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
     private val applicationContext: ApplicationContext,
     private val rabbitTemplate: RabbitTemplate,
     private val rabbitAdmin: RabbitAdmin,
+    private val queueMetrics: RabbitMqQueueMetrics,
+    private val meterRegistry: MeterRegistry,
     private val objectMapper: ObjectMapper,
     private val processedEventRepository: ProcessedEventJpaRepository,
     private val notificationRequestRepository: ReservationNotificationRequestJpaRepository,
@@ -173,6 +178,18 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
         awaitQueueCount(1)
         assertThat(processedEventRepository.count()).isZero()
         assertThat(notificationRequestRepository.count()).isZero()
+        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).untilAsserted {
+            queueMetrics.refresh()
+            assertThat(
+                meterRegistry.get("climbdesk.messaging.rabbitmq.queue.depth").tag("queue", "main").gauge().value(),
+            ).isEqualTo(1.0)
+        }
+        val drainTimer = meterRegistry.get("climbdesk.messaging.rabbitmq.main.backlog.drain").timer()
+        val drainCountBefore = drainTimer.count()
+        val drainSecondsBefore = drainTimer.totalTime(java.util.concurrent.TimeUnit.SECONDS)
+        val processingTimer = meterRegistry.find("climbdesk.messaging.consumer.processing.latency").timer()
+        val processingCountBefore = processingTimer?.count() ?: 0
+        val processingSecondsBefore = processingTimer?.totalTime(java.util.concurrent.TimeUnit.SECONDS) ?: 0.0
 
         listenerContainer().start()
 
@@ -181,6 +198,17 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
             assertThat(notificationRequestRepository.count()).isEqualTo(1)
             assertThat(queueCount()).isZero()
         }
+        val processingAfter = meterRegistry.get("climbdesk.messaging.consumer.processing.latency").timer()
+        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).untilAsserted {
+            queueMetrics.refresh()
+            assertThat(drainTimer.count() - drainCountBefore).isEqualTo(1)
+        }
+        val drainSeconds = drainTimer.totalTime(java.util.concurrent.TimeUnit.SECONDS) - drainSecondsBefore
+        val processingSeconds = processingAfter.totalTime(java.util.concurrent.TimeUnit.SECONDS) - processingSecondsBefore
+        assertThat(processingAfter.count() - processingCountBefore).isEqualTo(1)
+        assertThat(drainSeconds).isGreaterThanOrEqualTo(0.0)
+        assertThat(processingSeconds).isGreaterThanOrEqualTo(0.0)
+        println("MQ_T07_MEASUREMENT consumer_restart_drain_seconds=$drainSeconds processing_latency_seconds=$processingSeconds")
         val notification = notificationRequestRepository.findAll().single()
         assertThat(notification.sourceEventId).isEqualTo(outbox.id)
         assertThat(notification.reservationId).isEqualTo(reservation.id)
@@ -357,6 +385,9 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
             registry.add("spring.rabbitmq.username", rabbitMq::getAdminUsername)
             registry.add("spring.rabbitmq.password", rabbitMq::getAdminPassword)
             registry.add("spring.rabbitmq.virtual-host") { "/" }
+            registry.add("climbdesk.messaging.rabbitmq.observability.management-base-url") {
+                "http://${rabbitMq.host}:${rabbitMq.getMappedPort(15672)}"
+            }
         }
     }
 }

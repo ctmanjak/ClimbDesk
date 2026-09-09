@@ -11,6 +11,8 @@ import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaEnti
 import dev.climbdesk.classsession.infrastructure.persistence.ClassSessionJpaRepository
 import dev.climbdesk.event.domain.OutboxEventStatus
 import dev.climbdesk.event.infrastructure.persistence.OutboxEventJpaRepository
+import dev.climbdesk.event.infrastructure.persistence.ProcessedEventJpaRepository
+import dev.climbdesk.notification.infrastructure.persistence.ReservationNotificationRequestJpaRepository
 import dev.climbdesk.member.domain.MemberStatus
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaEntity
 import dev.climbdesk.member.infrastructure.persistence.MemberJpaRepository
@@ -52,7 +54,7 @@ import java.time.temporal.ChronoUnit
         "climbdesk.auth.jwt.secret=test-secret-that-is-long-enough-for-integration",
         "climbdesk.messaging.rabbitmq.enabled=true",
         "climbdesk.messaging.rabbitmq.publisher-enabled=true",
-        "climbdesk.messaging.rabbitmq.listener-enabled=false",
+        "climbdesk.messaging.rabbitmq.listener-enabled=true",
         "climbdesk.messaging.rabbitmq.publisher.poll-interval=100ms",
         "climbdesk.messaging.rabbitmq.publisher.confirm-timeout=500ms",
         "spring.datasource.url=jdbc:tc:postgresql:16-alpine:///outbox-publisher-recovery",
@@ -75,6 +77,8 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
     private val reservationJpaRepository: ReservationJpaRepository,
     private val passUsageHistoryJpaRepository: PassUsageHistoryJpaRepository,
     private val outboxEventJpaRepository: OutboxEventJpaRepository,
+    private val processedEventJpaRepository: ProcessedEventJpaRepository,
+    private val notificationRequestJpaRepository: ReservationNotificationRequestJpaRepository,
 ) {
     @BeforeEach
     fun setUp() {
@@ -127,11 +131,13 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
             val outbox = outboxEventJpaRepository.findAll().single()
             assertThat(outbox.status).isEqualTo(OutboxEventStatus.PUBLISHED)
             assertThat(outbox.publishedAt).isNotNull()
+            assertThat(processedEventJpaRepository.count()).isEqualTo(1)
+            assertThat(notificationRequestJpaRepository.count()).isEqualTo(1)
+            assertThat(checkNotNull(rabbitAdmin.getQueueInfo(RabbitMqTopology.MAIN_QUEUE)).messageCount).isZero()
         }
-        val message = rabbitTemplate.receive(RabbitMqTopology.MAIN_QUEUE, 5_000)
-        assertThat(message).isNotNull()
-        assertThat(message!!.messageProperties.messageId)
-            .isEqualTo(outboxEventJpaRepository.findAll().single().id.toString())
+        val eventId = outboxEventJpaRepository.findAll().single().id
+        assertThat(processedEventJpaRepository.findAll().single().eventId).isEqualTo(eventId)
+        assertThat(notificationRequestJpaRepository.findAll().single().sourceEventId).isEqualTo(eventId)
     }
 
     private fun accessToken(): String {
@@ -216,6 +222,8 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
     }
 
     private fun clearData() {
+        notificationRequestJpaRepository.deleteAll()
+        processedEventJpaRepository.deleteAll()
         outboxEventJpaRepository.deleteAll()
         passUsageHistoryJpaRepository.deleteAll()
         reservationJpaRepository.deleteAll()
@@ -240,6 +248,9 @@ class OutboxPublisherBrokerRecoveryIntegrationTest @Autowired constructor(
             registry.add("spring.rabbitmq.username", rabbitMq::getAdminUsername)
             registry.add("spring.rabbitmq.password", rabbitMq::getAdminPassword)
             registry.add("spring.rabbitmq.virtual-host") { "/" }
+            registry.add("climbdesk.messaging.rabbitmq.observability.management-base-url") {
+                "http://${rabbitMq.host}:${rabbitMq.getMappedPort(15672)}"
+            }
         }
     }
 }

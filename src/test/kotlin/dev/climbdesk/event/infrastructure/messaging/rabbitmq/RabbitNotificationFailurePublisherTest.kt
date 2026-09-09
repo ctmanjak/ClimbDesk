@@ -1,5 +1,7 @@
 package dev.climbdesk.event.infrastructure.messaging.rabbitmq
 
+import dev.climbdesk.event.application.FailureRepublishDestination
+import dev.climbdesk.event.application.MessagingObservation
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatCode
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -20,13 +22,21 @@ class RabbitNotificationFailurePublisherTest {
 
     @Test
     fun `confirm ACK without return succeeds`() {
-        val publisher = RabbitNotificationFailurePublisher(template { it.future.complete(CorrelationData.Confirm(true, null)) }, Duration.ofSeconds(1))
+        val observation = Mockito.mock(MessagingObservation::class.java)
+        val publisher = RabbitNotificationFailurePublisher(
+            template { it.future.complete(CorrelationData.Confirm(true, null)) },
+            Duration.ofSeconds(1),
+            observation,
+        )
         assertThatCode { publisher.publish(route) }.doesNotThrowAnyException()
+        Mockito.verify(observation).failureRepublishConfirmed(FailureRepublishDestination.DLQ)
+        Mockito.verify(observation, Mockito.never()).failureRepublishFailed(FailureRepublishDestination.DLQ)
     }
 
     @ParameterizedTest
     @EnumSource(FailureRepublishReason::class)
     fun `all unconfirmed outcomes fail safely and interrupt flag is restored`(reason: FailureRepublishReason) {
+        val observation = Mockito.mock(MessagingObservation::class.java)
         val template = template {
             when (reason) {
                 FailureRepublishReason.NACK -> it.future.complete(CorrelationData.Confirm(false, "sensitive@example.com"))
@@ -40,13 +50,15 @@ class RabbitNotificationFailurePublisherTest {
             }
         }
         try {
-            assertThatThrownBy { RabbitNotificationFailurePublisher(template, Duration.ofMillis(20)).publish(route) }
+            assertThatThrownBy { RabbitNotificationFailurePublisher(template, Duration.ofMillis(20), observation).publish(route) }
                 .isInstanceOfSatisfying(FailureRepublishException::class.java) {
                     assertThat(it.reason).isEqualTo(reason)
                     assertThat(it.cause).isNull()
                     assertThat(it.message).doesNotContain("sensitive")
                 }
             assertThat(Thread.currentThread().isInterrupted).isEqualTo(reason == FailureRepublishReason.INTERRUPTED)
+            Mockito.verify(observation).failureRepublishFailed(FailureRepublishDestination.DLQ)
+            Mockito.verify(observation, Mockito.never()).failureRepublishConfirmed(FailureRepublishDestination.DLQ)
         } finally {
             Thread.interrupted()
         }

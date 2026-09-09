@@ -1,5 +1,6 @@
 package dev.climbdesk.event.infrastructure.messaging.rabbitmq
 
+import dev.climbdesk.event.application.MessagingObservation
 import org.slf4j.LoggerFactory
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory
 import org.springframework.amqp.rabbit.connection.ConnectionFactory
@@ -24,8 +25,11 @@ class ReservationNotificationConsumerConfiguration {
     fun reservationNotificationFailureRouter() = ReservationNotificationFailureRouter(Clock.systemUTC())
 
     @Bean
-    fun rabbitNotificationFailurePublisher(template: RabbitTemplate, properties: RabbitMqProperties) =
-        RabbitNotificationFailurePublisher(template, properties.publisher.confirmTimeout)
+    fun rabbitNotificationFailurePublisher(
+        template: RabbitTemplate,
+        properties: RabbitMqProperties,
+        observation: MessagingObservation,
+    ) = RabbitNotificationFailurePublisher(template, properties.publisher.confirmTimeout, observation)
 
     @Bean
     fun reservationNotificationListenerContainerFactory(

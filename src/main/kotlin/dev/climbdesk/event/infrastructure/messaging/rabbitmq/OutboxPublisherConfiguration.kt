@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.climbdesk.event.application.OutboundMessagePublisher
 import dev.climbdesk.event.application.OutboxEventStore
 import dev.climbdesk.event.application.OutboxMessageMapper
+import dev.climbdesk.event.application.MessagingObservation
 import dev.climbdesk.event.application.OutboxPublisherPolicy
 import dev.climbdesk.event.application.OutboxPublishUseCase
 import dev.climbdesk.event.application.PollingOutboxPublisher
@@ -55,12 +56,14 @@ class OutboxPublisherConfiguration {
         outboxMessageMapper: OutboxMessageMapper,
         outboundMessagePublisher: OutboundMessagePublisher,
         policy: OutboxPublisherPolicy,
+        observation: MessagingObservation,
     ): PollingOutboxPublisher =
         PollingOutboxPublisher(
             outboxEventStore = outboxEventStore,
             outboxMessageMapper = outboxMessageMapper,
             outboundMessagePublisher = outboundMessagePublisher,
             policy = policy,
+            observation = observation,
         )
 }
 

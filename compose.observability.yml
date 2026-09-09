@@ -1,0 +1,12 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/climbdesk-alerts.yml:/etc/prometheus/climbdesk-alerts.yml:ro
+      - ./ops/prometheus/climbdesk-token:/etc/prometheus/climbdesk-token:ro

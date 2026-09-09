@@ -1,0 +1,31 @@
+rule_files:
+  - climbdesk-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'climbdesk_messaging_rabbitmq_queue_unacknowledged{queue="main"}'
+        values: '10 10 10 10 10'
+      - series: 'climbdesk_messaging_consumer_processing_latency_seconds_count'
+        values: '0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ClimbDeskReservationConsumerPrefetchSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              queue: main
+            exp_annotations:
+              summary: Reservation notification consumer is stalled at its prefetch limit
+  - interval: 1m
+    input_series:
+      - series: 'climbdesk_messaging_rabbitmq_queue_unacknowledged{queue="main"}'
+        values: '10 10 10 10 10'
+      - series: 'climbdesk_messaging_consumer_processing_latency_seconds_count'
+        values: '0 1 2 3 4'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ClimbDeskReservationConsumerPrefetchSaturated
+        exp_alerts: []
