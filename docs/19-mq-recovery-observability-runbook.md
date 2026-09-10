@@ -28,7 +28,7 @@
 | `climbdesk_messaging_consumer_processing_latency_seconds` | event 발생부터 정상 business result commit까지(seconds) | 없음 | `PROCESSED` 반환 후 Timer 기록. rollback/duplicate 제외 |
 | `climbdesk_messaging_rabbitmq_main_backlog_drain_seconds` | 관측된 main depth가 0보다 큰 시점부터 다음 0까지(seconds) | 없음 | management sampler가 non-empty→empty를 관측할 때 Timer 기록 |
 
-DB 또는 management API 수집 실패는 예약/메시지 transaction 밖에서 처리한다. 해당 gauge는 `NaN`이 되며 payload, credential, SQL, exception message를 로그에 남기지 않는다. label에는 eventId, messageId, 사용자 ID, exception message가 없다.
+DB 또는 management API 수집 실패는 예약/메시지 transaction 밖에서 처리한다. management API 실패는 해당 queue gauge만 `NaN`으로 만들고 다른 queue의 정상 수집값은 유지한다. queue sampler는 Outbox Publisher와 별도 scheduler에서 실행된다. payload, credential, SQL, exception message를 로그에 남기지 않으며 label에는 eventId, messageId, 사용자 ID, exception message가 없다.
 
 Outbox 실패와 Consumer commit 로그는 검증된 숫자 eventId만 correlation 값으로 기록한다. 잘못된 messageId는 `unavailable`로 기록하고 payload, 이메일, 전화번호, 전체 nested stack trace를 기록하지 않는다.
 

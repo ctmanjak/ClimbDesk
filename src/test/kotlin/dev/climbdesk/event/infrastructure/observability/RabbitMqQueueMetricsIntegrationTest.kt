@@ -65,6 +65,27 @@ class RabbitMqQueueMetricsIntegrationTest {
     }
 
     @Test
+    fun `one unavailable queue does not hide healthy main and DLQ gauges`() {
+        connectionFactory().newConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                channel.basicPublish("", RabbitMqTopology.MAIN_QUEUE, null, "{}".toByteArray())
+                channel.basicPublish("", RabbitMqTopology.DEAD_LETTER_QUEUE, null, "{}".toByteArray())
+                channel.queueDelete(RabbitMqTopology.RETRY_QUEUE_5S)
+
+                val registry = SimpleMeterRegistry()
+                val metrics = queueMetrics()
+                metrics.bindTo(registry)
+                await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200)).untilAsserted {
+                    metrics.refresh()
+                    assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.depth", "main")).isEqualTo(1.0)
+                    assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.depth", "dlq")).isEqualTo(1.0)
+                    assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.depth", "retry_5s")).isNaN()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `single DLQ replay preserves event id and acknowledges original only after confirmed routing`() {
         connectionFactory().newConnection().use { connection ->
             connection.createChannel().use { channel ->

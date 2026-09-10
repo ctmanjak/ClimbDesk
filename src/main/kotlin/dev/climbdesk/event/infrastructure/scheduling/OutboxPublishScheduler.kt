@@ -6,6 +6,8 @@ import org.springframework.scheduling.annotation.Scheduled
 import org.slf4j.LoggerFactory
 import java.time.Instant
 
+internal const val OUTBOX_PUBLISH_SCHEDULER_BEAN_NAME = "outboxPublisherTaskScheduler"
+
 class OutboxPublishScheduler(
     private val pollingOutboxPublisher: OutboxPublishUseCase,
     private val policy: OutboxPublisherPolicy,
@@ -13,6 +15,7 @@ class OutboxPublishScheduler(
     @Scheduled(
         fixedDelayString = "\${climbdesk.messaging.rabbitmq.publisher.poll-interval}",
         initialDelayString = "\${climbdesk.messaging.rabbitmq.publisher.poll-interval}",
+        scheduler = OUTBOX_PUBLISH_SCHEDULER_BEAN_NAME,
     )
     fun publishDueEvents() {
         var processedCount = 0

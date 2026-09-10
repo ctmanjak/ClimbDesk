@@ -21,6 +21,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal const val RABBIT_MQ_QUEUE_METRICS_SCHEDULER_BEAN_NAME = "rabbitMqQueueMetricsTaskScheduler"
+
 class RabbitMqQueueMetrics(
     managementBaseUrl: String,
     username: String,
@@ -40,7 +42,7 @@ class RabbitMqQueueMetrics(
         })
         .build()
     private val snapshots = queueNames.associateWith { QueueSnapshot() }
-    private val collectionHealthy = AtomicBoolean(true)
+    private val collectionHealthy = queueNames.associateWith { AtomicBoolean(true) }
     private var backlogStartedAt: Instant? = null
     private lateinit var drainTimer: Timer
 
@@ -67,18 +69,30 @@ class RabbitMqQueueMetrics(
     @Scheduled(
         fixedDelayString = "\${climbdesk.messaging.rabbitmq.observability.sample-interval:5s}",
         initialDelayString = "\${climbdesk.messaging.rabbitmq.observability.sample-interval:5s}",
+        scheduler = RABBIT_MQ_QUEUE_METRICS_SCHEDULER_BEAN_NAME,
     )
     fun refresh() {
-        try {
-            snapshots.forEach { (queue, snapshot) -> snapshot.update(fetch(queue)) }
-            observeDrain(snapshots.getValue(RabbitMqTopology.MAIN_QUEUE).depth.toLong())
-            collectionHealthy.set(true)
-        } catch (exception: Exception) {
-            snapshots.values.forEach { it.unavailable() }
-            if (collectionHealthy.getAndSet(false)) {
-                logger.warn("RabbitMQ management metric collection unavailable: exceptionClass={}", exception.javaClass.simpleName)
+        var mainDepth: Long? = null
+        snapshots.forEach { (queue, snapshot) ->
+            try {
+                val fetched = fetch(queue)
+                snapshot.update(fetched)
+                collectionHealthy.getValue(queue).set(true)
+                if (queue == RabbitMqTopology.MAIN_QUEUE) {
+                    mainDepth = fetched.depth
+                }
+            } catch (exception: Exception) {
+                snapshot.unavailable()
+                if (collectionHealthy.getValue(queue).getAndSet(false)) {
+                    logger.warn(
+                        "RabbitMQ queue metric collection unavailable: queue={} exceptionClass={}",
+                        queueLabels.getValue(queue),
+                        exception.javaClass.simpleName,
+                    )
+                }
             }
         }
+        mainDepth?.let(::observeDrain)
     }
 
     private fun fetch(queue: String): BrokerQueueSnapshot {
