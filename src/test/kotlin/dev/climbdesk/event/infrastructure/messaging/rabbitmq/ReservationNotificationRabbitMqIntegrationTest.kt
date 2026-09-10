@@ -215,6 +215,76 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
         assertThat(notification.memberId).isEqualTo(ids.memberId)
     }
 
+    @Test
+    fun `single DLQ replay preserves event id and acknowledges original only after confirmed routing`() {
+        val ids = savePrerequisites()
+        val reservation = reservationRepository.saveAndFlush(
+            ReservationJpaEntity(
+                memberId = ids.memberId,
+                classSessionId = ids.classSessionId,
+                memberPassId = ids.memberPassId,
+                status = ReservationStatus.CONFIRMED,
+                reservedAt = Instant.now(),
+            ),
+        )
+        val body = objectMapper.writeValueAsBytes(envelope(EVENT_ID, reservation.id, ids))
+        val properties = MessageProperties().apply {
+            messageId = EVENT_ID.toString()
+            type = "reservation.confirmed"
+            contentType = MessageProperties.CONTENT_TYPE_JSON
+            deliveryMode = MessageDeliveryMode.PERSISTENT
+            setHeader("x-schema-version", 1)
+            setHeader("x-producer", "climbdesk")
+            setHeader("x-retry-count", 3)
+            setHeader("x-failure-category", "UNKNOWN")
+            setHeader("x-original-exchange", RabbitMqTopology.MAIN_EXCHANGE)
+            setHeader("x-original-routing-key", RabbitMqTopology.MAIN_ROUTING_KEY)
+            setHeader("x-original-queue", RabbitMqTopology.MAIN_QUEUE)
+            setHeader("x-first-failed-at", "2026-09-10T00:00:00Z")
+            setHeader("x-last-failed-at", "2026-09-10T00:03:00Z")
+            setHeader("x-exception-class", "IllegalStateException")
+            setHeader("x-error-summary", "Transient processing failure")
+        }
+        rabbitTemplate.send("", RabbitMqTopology.DEAD_LETTER_QUEUE, Message(body, properties))
+
+        newRawConnection().use { connection ->
+            connection.createChannel().use { channel ->
+                val original = receiveWithoutAck(channel, RabbitMqTopology.DEAD_LETTER_QUEUE)
+                DlqSingleMessageReplayCommand.replayAndAcknowledge(channel, original, rabbitTemplate)
+
+                assertThat(channel.queueDeclarePassive(RabbitMqTopology.DEAD_LETTER_QUEUE).messageCount).isZero()
+                val replay = receiveWithoutAck(channel)
+                assertThat(replay.props.messageId).isEqualTo(EVENT_ID.toString())
+                assertThat(replay.props.type).isEqualTo("reservation.confirmed")
+                assertThat(replay.props.contentType).isEqualTo(MessageProperties.CONTENT_TYPE_JSON)
+                assertThat(replay.props.deliveryMode).isEqualTo(2)
+                assertThat(replay.body).isEqualTo(body)
+                assertThat(replay.props.headers["x-schema-version"]).isEqualTo(1)
+                assertThat(replay.props.headers["x-retry-count"]).isEqualTo(0)
+                assertThat(replay.props.headers["x-producer"].toString()).isEqualTo("climbdesk")
+                assertThat(replay.props.headers["x-failure-category"].toString()).isEqualTo("UNKNOWN")
+                assertThat(replay.props.headers["x-original-exchange"].toString())
+                    .isEqualTo(RabbitMqTopology.MAIN_EXCHANGE)
+                assertThat(replay.props.headers["x-original-routing-key"].toString())
+                    .isEqualTo(RabbitMqTopology.MAIN_ROUTING_KEY)
+                assertThat(replay.props.headers["x-original-queue"].toString()).isEqualTo(RabbitMqTopology.MAIN_QUEUE)
+                assertThat(replay.props.headers["x-first-failed-at"].toString()).isEqualTo("2026-09-10T00:00:00Z")
+                assertThat(replay.props.headers["x-last-failed-at"].toString()).isEqualTo("2026-09-10T00:03:00Z")
+                assertThat(replay.props.headers["x-exception-class"].toString()).isEqualTo("IllegalStateException")
+                assertThat(replay.props.headers["x-error-summary"].toString()).isEqualTo("Transient processing failure")
+                channel.basicNack(replay.envelope.deliveryTag, false, true)
+            }
+        }
+
+        listenerContainer().start()
+        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(100)).untilAsserted {
+            assertThat(processedEventRepository.count()).isEqualTo(1)
+            assertThat(notificationRequestRepository.count()).isEqualTo(1)
+            assertThat(queueCount()).isZero()
+        }
+        assertThat(notificationRequestRepository.findAll().single().sourceEventId).isEqualTo(EVENT_ID)
+    }
+
     private fun publish(envelope: ReservationConfirmedEventEnvelopeV1) {
         val properties = MessageProperties().apply {
             messageId = envelope.eventId.toString()
@@ -262,10 +332,13 @@ class ReservationNotificationRabbitMqIntegrationTest @Autowired constructor(
             memberPassId = payload.memberPassId,
         )
 
-    private fun receiveWithoutAck(channel: com.rabbitmq.client.Channel): GetResponse {
+    private fun receiveWithoutAck(
+        channel: com.rabbitmq.client.Channel,
+        queue: String = RabbitMqTopology.MAIN_QUEUE,
+    ): GetResponse {
         val received = AtomicReference<GetResponse>()
         await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(100)).untilAsserted {
-            channel.basicGet(RabbitMqTopology.MAIN_QUEUE, false)?.let(received::set)
+            channel.basicGet(queue, false)?.let(received::set)
             assertThat(received.get()).isNotNull
         }
         return received.get()

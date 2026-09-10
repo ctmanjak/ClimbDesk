@@ -233,7 +233,7 @@ eventId, messageId, 사용자 ID, exception message는 metric label에 사용하
 
 `./gradlew dlqReplayOne`의 기본 `inspect`는 DLQ head 한 건을 ACK 없이 가져오고 body를 출력하지 않은 채 조사 metadata를 출력한 후 requeue한다. `replay`는 양수 `CLIMBDESK_DLQ_REPLAY_EVENT_ID`와 정확히 같은 `CLIMBDESK_DLQ_REPLAY_CONFIRM`을 요구하며, head eventId가 다르면 원본을 DLQ에 둔다.
 
-replay는 같은 body/messageId/properties/`x-retry-count`와 조사 metadata를 main exchange의 `reservation.confirmed.v1`로 mandatory persistent publish한다. correlated confirm ACK와 mandatory return 없음 뒤에만 DLQ 원본을 ACK한다. 실패하면 channel이 열려 있을 때 원본을 requeue한다. `RabbitMqQueueMetricsIntegrationTest`.`single DLQ replay preserves event id and acknowledges original only after confirmed routing`은 실제 RabbitMQ에서 eventId `701`, retry count `3`, failure category `UNKNOWN` 보존과 최종 DLQ 0/main 1을 확인한다. 자동·일괄 replay와 payload 수정 기능은 없다.
+replay는 같은 body/messageId와 나머지 properties·조사 metadata를 보존하되, 운영자가 원인을 해결하고 명시적으로 승인한 새 처리 시도라는 계약에 따라 `x-retry-count`만 `0`으로 초기화해 main exchange의 `reservation.confirmed.v1`로 mandatory persistent publish한다. correlated confirm ACK와 mandatory return 없음 뒤에만 DLQ 원본을 ACK하며 실패하면 channel이 열려 있을 때 원본을 requeue한다. `ReservationNotificationRabbitMqIntegrationTest`.`single DLQ replay preserves event id and acknowledges original only after confirmed routing`은 실제 RabbitMQ에서 eventId `701`, body와 조사 metadata 보존, retry count `3→0`, DLQ 0을 확인한 뒤 실제 Consumer로 처리해 main 0, processed 1, notification 1을 검증한다. 자동·일괄 replay와 payload 수정 기능은 없다.
 
 ## 5. 장애 시나리오 검증 결과
 
@@ -245,7 +245,7 @@ replay는 같은 body/messageId/properties/`x-retry-count`와 조사 metadata를
 | unroutable/return | `OutboxPublisherRabbitMqIntegrationTest`.`mandatory return remains failed even when the broker confirms the publish` | confirm ACK가 있어도 Outbox `FAILED` |
 | publish 성공 후 DB 상태 저장 실패 | `OutboxPublisherRabbitMqIntegrationTest`.`confirmed publish followed by database status failure can publish the same event id twice` | broker에 같은 eventId 중복 가능성이 재현됨 |
 | broker 중단·복구 | `OutboxPublisherBrokerRecoveryIntegrationTest`.`reservation and outbox commit while broker is down and scheduler publishes after recovery` | 중단 중 HTTP 201, Reservation 1, Outbox `FAILED/retryCount=1`; 복구 후 `PUBLISHED`, main 0, processed 1, notification 1 |
-| 같은 broker node restart 내구성 | `RabbitMqRestartIntegrationTest`.`durable production topology and persistent message survive the same broker restart` | durable topology와 persistent message 유지 |
+| 같은 broker node restart 내구성 | `RabbitMqRestartIntegrationTest`.`durable production topology and persistent message survive the same broker restart` | 단독 실행에서는 durable topology와 persistent message 유지 확인. 전체 suite에서는 같은 assertion이 세 번 실패했으며 상세 결과는 8절에 기록 |
 | Consumer DB rollback 후 redelivery | `ReservationConfirmedNotificationRollbackIntegrationTest`.`notification persistence failure rolls back processed insert and the same event can succeed on redelivery` | 첫 시도 processed/notification 0; 재처리 후 각각 1 |
 | DB commit 후 ACK 전 연결 종료 | `ReservationNotificationRabbitMqIntegrationTest`.`database commit followed by connection close before ack redelivers and remains one business result` | redelivered=true; processed 1, notification 1, main 0 |
 | Consumer 중단·복구 | `ReservationNotificationRabbitMqIntegrationTest`.`reservation and outbox publish continue while consumer is stopped and backlog drains after restart` | 중단 중 Outbox `PUBLISHED`, main 1, business row 0; 재시작 후 main 0, processed 1, notification 1 |
@@ -259,7 +259,7 @@ replay는 같은 body/messageId/properties/`x-retry-count`와 조사 metadata를
 | retry confirm 뒤 ACK 전 연결 종료 | `confirmed retry then connection loss before ACK creates duplicates absorbed by DB constraints` | 원본 redelivery와 retry delivery를 모두 받아도 processed 1, notification 1 |
 | 큐별 sampler 장애 | `RabbitMqQueueMetricsIntegrationTest`.`one unavailable queue does not hide healthy main and DLQ gauges` | 삭제된 retry_5s gauge만 `NaN`; main/DLQ 정상 값 유지 |
 | terminal 단건 requeue | `MessagingMetricsIntegrationTest`.`terminal Outbox runbook uses the current policy and requeues only one stranded RabbitMQ row` | 대상만 첫 UPDATE 1, 재실행 0 |
-| DLQ 단건 replay | `RabbitMqQueueMetricsIntegrationTest`.`single DLQ replay preserves event id and acknowledges original only after confirmed routing` | 동일 eventId/header, DLQ 0, main 1 |
+| DLQ 단건 replay | `ReservationNotificationRabbitMqIntegrationTest`.`single DLQ replay preserves event id and acknowledges original only after confirmed routing` | 동일 eventId/body/조사 metadata, retry count 0, DLQ/main 0, processed 1, notification 1 |
 
 중복 delivery가 최종 business effect 한 건으로 수렴하는 핵심 증거는 ACK-gap, retry-republish ACK-gap, 순차·동시 duplicate의 네 경계를 실제 PostgreSQL unique contract와 함께 검증한 위 테스트들이다.
 
@@ -291,7 +291,7 @@ drain은 5초 management sampling이 main non-empty와 다음 empty를 관측한
 | retry/DLQ metric | retry와 DLQ 상태를 관측 | 목적지별 confirmed/failure republish counter + queue depth gauge | 의도적으로 변경 | 처리 시도 counter와 broker의 현재 적재 상태를 분리해 해석한다. | `MessagingMetrics`, queue metrics tests, runbook |
 | queue sampling | main/retry/DLQ depth | 5개 queue depth+unacked, 큐별 실패 격리 | 구현 일치 | PR #67에서 Outbox scheduler와 분리하고 실패 queue만 `NaN`으로 보완 | PR #67, scheduler isolation/partial failure tests |
 | terminal Outbox 복구 | 제한된 script/runbook으로 한 건 requeue | 조건부 SQL runbook, PostgreSQL rehearsal | 구현 일치 | 애플리케이션 command/API 대신 SQL 절차를 선택 | runbook 5절, metrics integration test |
-| DLQ 복구 | 같은 eventId 한 건 수동 replay | `dlqReplayOne`, inspect/replay 확인값, confirm 뒤 ACK | 구현 일치 | 없음 | runbook 6절, queue metrics integration test |
+| DLQ 복구 | 같은 eventId 한 건 수동 replay | `dlqReplayOne`, `x-retry-count=0` 새 budget, confirm 뒤 ACK, 실제 Consumer 처리 | 구체화 | 운영자가 원인을 해결하고 승인한 replay를 새 처리 시도로 정의 | runbook 6절, reservation notification integration test |
 | 전체 application 재시작 | durable DB·queue state 복구 | broker node restart, broker stop/start, Consumer stop/start는 자동 검증; JVM 전체 restart E2E는 없음 | 부분 구현 | 핵심 durability 경계는 분리 검증했지만 실제 애플리케이션 프로세스 전체 재시작 시나리오는 자동화하지 않았다. | restart/broker-recovery/consumer-recovery tests |
 | Outbox `PUBLISHED` retention | 구현 후 정책 기록 | 삭제 job과 retention 정책 없음; 현행 보존 | 미구현 | dedup replay 기간과 함께 별도 운영 결정이 필요하다. | repository와 runbook에 cleanup 없음 |
 | 실제 외부 알림 | 제외 | DB에 알림 요청만 기록 | 제외 범위 | provider idempotency와 provider/DB dual-write가 미해결 | handler, runbook |
@@ -364,7 +364,7 @@ drain은 5초 management sampling이 main non-empty와 다음 empty를 관측한
 - skips: `0`
 - 실패: `RabbitMqRestartIntegrationTest`.`durable production topology and persistent message survive the same broker restart` (`RabbitMqRestartIntegrationTest.kt:89`)
 
-같은 class 단독 재실행은 `2 tests, failures/errors/skips 0`으로 통과했다. 이어 `RabbitMqRestartIntegrationTest`, `RabbitMqTopologyIntegrationTest`, `OutboxPublisherBrokerRecoveryIntegrationTest` 묶음은 `12 tests, failures/errors/skips 0`으로 통과했다. 이 관측은 full-suite의 Spring context/Testcontainer timing과 연관될 수 있지만, 한 번의 후속 성공만으로 단순 flake라고 확정하지 않는다. 이번 문서 PR은 production/test 코드를 바꾸지 않으며, 반복되면 별도 안정화 작업에서 원인을 다룬다.
+같은 class 단독 재실행은 `2 tests, failures/errors/skips 0`으로 통과했다. 이어 `RabbitMqRestartIntegrationTest`, `RabbitMqTopologyIntegrationTest`, `OutboxPublisherBrokerRecoveryIntegrationTest` 묶음은 `12 tests, failures/errors/skips 0`으로 통과했다. 이 관측은 full-suite의 Spring context/Testcontainer timing과 연관될 수 있지만, 한 번의 후속 성공만으로 단순 flake라고 확정하지 않는다. 이 기준선에서는 production/test 코드를 바꾸지 않았으며, 반복되면 별도 안정화 작업에서 원인을 다룬다.
 
 ### 8.2 완료 전 결과
 
@@ -374,7 +374,18 @@ drain은 5초 management sampling이 main non-empty와 다음 empty를 관측한
 - skips: `0`
 - 실패: `RabbitMqRestartIntegrationTest`.`durable production topology and persistent message survive the same broker restart` (`RabbitMqRestartIntegrationTest.kt:89`, expected `1`, actual `0`)
 
-작업 시작과 완료 전의 두 full-suite 실행에서 같은 실패가 재현됐다. 반면 해당 class 단독 실행은 2/2, restart·topology·broker recovery 관련 묶음 실행은 12/12 통과했다. 따라서 문서 변경의 회귀로 보지는 않지만 단순 일회성 flake로도 분류하지 않으며, full-suite 실행 순서·Spring context·Testcontainer timing을 포함한 별도 안정화 조사가 필요하다. 이번 변경에는 production/test 코드 수정이 없다.
+작업 시작과 최초 완료 전의 두 full-suite 실행에서 같은 실패가 재현됐다. 반면 해당 class 단독 실행은 2/2, restart·topology·broker recovery 관련 묶음 실행은 12/12 통과했다. 따라서 최초 문서 변경의 회귀로 보지는 않지만 단순 일회성 flake로도 분류하지 않으며, full-suite 실행 순서·Spring context·Testcontainer timing을 포함한 별도 안정화 조사가 필요하다.
+
+### 8.3 review 반영 후 결과
+
+DLQ replay가 새 retry budget으로 실제 Consumer 처리까지 이어지도록 production code와 통합 테스트를 수정한 뒤 다시 실행했다.
+
+- 대상 단일 replay 테스트: `1 test, failures/errors/skips 0`
+- replay Consumer·queue metrics 관련 묶음: `6 tests, failures/errors/skips 0`
+- 전체 suite: `418 tests, failures 1, errors 0, skips 0`
+- 전체 suite 실패: 앞선 두 실행과 같은 `RabbitMqRestartIntegrationTest`.`durable production topology and persistent message survive the same broker restart` (`RabbitMqRestartIntegrationTest.kt:89`, expected `1`, actual `0`)
+
+review 변경 대상인 replay 테스트는 전체 suite에서도 통과했다. restart 실패는 이로써 세 full-suite 실행에서 반복됐으며 별도 안정화 범위로 유지한다.
 
 추가 완료 조건:
 
