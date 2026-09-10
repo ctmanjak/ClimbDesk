@@ -9,6 +9,7 @@
 - 승인 설계: Notion `11 - MQ 기반 비동기 이벤트 처리 설계`
 - 구현 범위: `ReservationConfirmedEvent`의 Transactional Outbox, polling Publisher, RabbitMQ main/retry/DLQ, 멱등 Consumer, 관측 및 수동 복구
 - 결과 저장소 문서: `docs/22-mq-implementation-results.md`
+- Notion 결과 페이지: [`12 - MQ 구현 결과 및 승인 설계 차이`](https://app.notion.com/p/3d74c60a73038126b1d5e8a8973981c8)
 - 운영 절차: [`docs/19-mq-recovery-observability-runbook.md`](19-mq-recovery-observability-runbook.md)
 
 문서 번호는 요청된 경로 `22`를 사용한다. 기준 commit의 tracked `docs`에는 `19`까지 존재하지만, 기본 worktree에 있는 사용자 소유의 미병합 문서를 건드리거나 번호를 재사용하지 않기 위해 `20` 또는 `21`을 선택하지 않았다.
@@ -349,7 +350,7 @@ drain은 5초 management sampling이 main non-empty와 다음 empty를 관측한
 | 승인 설계: 실제 application JVM 전체 restart | 부분 구현 | durable broker restart와 Publisher/Consumer stop-start는 검증; 전체 JVM restart E2E 없음 |
 | 승인 설계: 현재/미구현 범위를 README·architecture·면접 자료에서 일치 | 부분 구현 | 이 결과 문서와 README 링크는 추가; 보호 대상 MVP architecture 본문과 별도 면접 자료는 변경하지 않음 |
 | MQ-T08: repository 결과 문서, 차이/ADR, 수치, 전체 결과 | 완료 | 이 문서와 8절 |
-| MQ-T08: Notion 결과 페이지 및 Epic/T01~T08 backlink | repository 밖 작업 | Draft PR 생성 뒤 Notion에서 새 페이지와 링크를 추가하고 재조회해 검증 |
+| MQ-T08: Notion 결과 페이지 및 Epic/T01~T08 backlink | 완료 | 새 결과 페이지를 만들고 9개 대상 페이지에 backlink를 추가한 뒤 모두 재조회해 검증 |
 
 ## 8. 검증 실행 결과
 
