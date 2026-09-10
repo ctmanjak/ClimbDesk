@@ -4,6 +4,7 @@ import com.rabbitmq.client.Channel
 import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.GetResponse
 import org.springframework.amqp.core.Message
+import org.springframework.amqp.core.MessageDeliveryMode
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory
 import org.springframework.amqp.rabbit.connection.CorrelationData
 import org.springframework.amqp.rabbit.support.DefaultMessagePropertiesConverter
@@ -62,6 +63,8 @@ object DlqSingleMessageReplayCommand {
             delivery.envelope,
             StandardCharsets.UTF_8.name(),
         )
+        delivery.props.deliveryMode?.let { messageProperties.deliveryMode = MessageDeliveryMode.fromInt(it) }
+        messageProperties.setHeader(ReservationNotificationFailureRouter.RETRY_COUNT, 0)
         try {
             rabbitTemplate.send(
                 RabbitMqTopology.MAIN_EXCHANGE,

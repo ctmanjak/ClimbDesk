@@ -130,7 +130,7 @@ CLIMBDESK_DLQ_REPLAY_ACTION=inspect ./gradlew dlqReplayOne
 
 손상 payload를 추측해 고치거나 새 eventId를 발급하지 않는다. 계약 자체를 복구해야 하면 원본을 DLQ에 둔 채 별도 incident에서 producer contract와 신뢰 가능한 source data를 확인한다. 이 도구로 임의 payload를 생성하지 않는다.
 
-재처리 시 기존 `x-retry-count`, original routing, first/last-failed-at, failure metadata와 body/properties를 그대로 유지한다. 이미 소진한 retry budget을 숨기지 않으므로 replay 뒤 다시 실패하면 현재 router 정책상 DLQ로 돌아간다.
+재처리 시 운영자가 원인을 해결하고 한 건 replay를 명시적으로 확인한 것을 새 처리 시도로 간주해 `x-retry-count`를 `0`으로 초기화한다. original routing, first/last-failed-at, failure metadata와 나머지 body/properties는 그대로 유지한다. replay 뒤 실패가 `TRANSIENT` 또는 `UNKNOWN`으로 분류될 때만 현재 Consumer 정책의 5초→30초→2분 retry budget을 다시 사용한다. 계약 오류인 `PERMANENT_MESSAGE`나 예약 정합성 오류인 `DATA_CONSISTENCY`는 retry count와 관계없이 즉시 DLQ로 돌아간다.
 
 ```bash
 export CLIMBDESK_DLQ_REPLAY_ACTION=replay
@@ -139,7 +139,7 @@ export CLIMBDESK_DLQ_REPLAY_CONFIRM=701
 ./gradlew dlqReplayOne
 ```
 
-도구는 DLQ head eventId가 요청값과 정확히 일치할 때만 같은 messageId/eventId로 `climbdesk.events` / `reservation.confirmed.v1`에 mandatory persistent republish한다. correlated publisher confirm ACK와 return 부재를 확인한 뒤에만 DLQ 원본을 ACK한다. NACK, timeout, return, connection 오류면 원본을 requeue한다. republish confirm과 DLQ ACK 사이 connection 손실에는 중복 가능성이 남으며 Consumer DB 멱등성이 이를 흡수한다.
+도구는 DLQ head eventId가 요청값과 정확히 일치할 때만 같은 messageId/eventId와 body/properties로 `climbdesk.events` / `reservation.confirmed.v1`에 mandatory republish하며, `x-retry-count`만 `0`으로 덮어쓴다. 원본에 `deliveryMode`가 있으면 같은 값을 보존한다. correlated publisher confirm ACK와 return 부재를 확인한 뒤에만 DLQ 원본을 ACK한다. NACK, timeout, return, connection 오류면 원본을 requeue한다. republish confirm과 DLQ ACK 사이 connection 손실에는 중복 가능성이 남으며 Consumer DB 멱등성이 이를 흡수한다.
 
 완료 후 main/retry/DLQ depth, processed event 한 건, notification 최대 한 건과 상태를 확인하고 조작자·UTC 시각·eventId·원인·confirm 결과·DLQ ACK 결과를 incident/ticket에 기록한다.
 

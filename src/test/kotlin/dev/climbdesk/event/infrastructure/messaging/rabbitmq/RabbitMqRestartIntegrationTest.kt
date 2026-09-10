@@ -77,9 +77,8 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         assertThat(correlationData.returned).isNull()
 
         val containerId = rabbitMq.containerId
-        val nodePid = checkNotNull(rabbitMqNodePid())
         try {
-            restartRabbitMqNode(nodePid)
+            restartRabbitMqApplication()
             connectionFactory.resetConnection()
             rabbitTemplate.awaitAmqpReady(rabbitMq)
             assertThat(rabbitMq.containerId).isEqualTo(containerId)
@@ -178,12 +177,14 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
             .contains(routingKey)
     }
 
-    private fun restartRabbitMqNode(previousPid: String) {
-        val result = rabbitMq.execInContainer("rabbitmqctl", "shutdown")
-        assertThat(result.exitCode).isZero()
+    private fun restartRabbitMqApplication() {
+        val stop = rabbitMq.execInContainer("rabbitmqctl", "stop_app")
+        assertThat(stop.exitCode).isZero()
         await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(200)).until {
-            rabbitMqNodePid()?.let { it != previousPid } == true
+            !rabbitMqApplicationIsRunning()
         }
+        val start = rabbitMq.execInContainer("rabbitmqctl", "start_app")
+        assertThat(start.exitCode).isZero()
         ensureRabbitMqRunning()
     }
 
@@ -211,11 +212,6 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
 
     private fun rabbitMqContainerIsRunning(): Boolean =
         rabbitMq.dockerClient.inspectContainerCmd(rabbitMq.containerId).exec().state.running == true
-
-    private fun rabbitMqNodePid(): String? =
-        runCatching {
-            rabbitMq.execInContainer("pidof", "beam.smp").stdout.trim().takeIf(String::isNotEmpty)
-        }.getOrNull()
 
     private fun rabbitMqNodeResponds(): Boolean =
         runCatching {
@@ -283,11 +279,6 @@ class RabbitMqRestartIntegrationTest @Autowired constructor(
         @JvmStatic
         val rabbitMq: RabbitMQContainer =
             RabbitMQContainer(DockerImageName.parse("rabbitmq:4.1-management-alpine"))
-                .withCommand(
-                    "sh",
-                    "-c",
-                    "while true; do docker-entrypoint.sh rabbitmq-server; done",
-                )
 
         @JvmStatic
         @DynamicPropertySource

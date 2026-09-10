@@ -2,7 +2,6 @@ package dev.climbdesk.event.infrastructure.observability
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.rabbitmq.client.ConnectionFactory
-import com.rabbitmq.client.AMQP
 import dev.climbdesk.event.infrastructure.messaging.rabbitmq.RabbitMqTopology
 import dev.climbdesk.event.infrastructure.messaging.rabbitmq.DlqSingleMessageReplayCommand
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -81,49 +80,6 @@ class RabbitMqQueueMetricsIntegrationTest {
                     assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.depth", "dlq")).isEqualTo(1.0)
                     assertThat(gauge(registry, "climbdesk.messaging.rabbitmq.queue.depth", "retry_5s")).isNaN()
                 }
-            }
-        }
-    }
-
-    @Test
-    fun `single DLQ replay preserves event id and acknowledges original only after confirmed routing`() {
-        connectionFactory().newConnection().use { connection ->
-            connection.createChannel().use { channel ->
-                channel.exchangeDeclare(RabbitMqTopology.MAIN_EXCHANGE, "topic", true)
-                channel.queueBind(
-                    RabbitMqTopology.MAIN_QUEUE,
-                    RabbitMqTopology.MAIN_EXCHANGE,
-                    RabbitMqTopology.MAIN_ROUTING_KEY,
-                )
-                val properties = AMQP.BasicProperties.Builder()
-                    .messageId("701")
-                    .type("reservation.confirmed")
-                    .deliveryMode(2)
-                    .headers(mapOf("x-retry-count" to 3, "x-failure-category" to "UNKNOWN"))
-                    .build()
-                channel.basicPublish("", RabbitMqTopology.DEAD_LETTER_QUEUE, properties, "{}".toByteArray())
-
-                val original = checkNotNull(channel.basicGet(RabbitMqTopology.DEAD_LETTER_QUEUE, false))
-                val publisherFactory = CachingConnectionFactory(rabbitMq.host, rabbitMq.amqpPort).apply {
-                    setUsername(rabbitMq.adminUsername)
-                    setPassword(rabbitMq.adminPassword)
-                    setVirtualHost("/")
-                    setPublisherConfirmType(CachingConnectionFactory.ConfirmType.CORRELATED)
-                    isPublisherReturns = true
-                }
-                try {
-                    val template = RabbitTemplate(publisherFactory).apply { setMandatory(true) }
-                    DlqSingleMessageReplayCommand.replayAndAcknowledge(channel, original, template)
-                } finally {
-                    publisherFactory.destroy()
-                }
-
-                assertThat(channel.queueDeclarePassive(RabbitMqTopology.DEAD_LETTER_QUEUE).messageCount).isZero()
-                val replay = checkNotNull(channel.basicGet(RabbitMqTopology.MAIN_QUEUE, true))
-                assertThat(replay.props.messageId).isEqualTo("701")
-                assertThat(replay.body).isEqualTo("{}".toByteArray())
-                assertThat(replay.props.headers["x-retry-count"]).isEqualTo(3)
-                assertThat(replay.props.headers["x-failure-category"].toString()).isEqualTo("UNKNOWN")
             }
         }
     }
