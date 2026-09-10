@@ -233,7 +233,7 @@ eventId, messageId, 사용자 ID, exception message는 metric label에 사용하
 
 `./gradlew dlqReplayOne`의 기본 `inspect`는 DLQ head 한 건을 ACK 없이 가져오고 body를 출력하지 않은 채 조사 metadata를 출력한 후 requeue한다. `replay`는 양수 `CLIMBDESK_DLQ_REPLAY_EVENT_ID`와 정확히 같은 `CLIMBDESK_DLQ_REPLAY_CONFIRM`을 요구하며, head eventId가 다르면 원본을 DLQ에 둔다.
 
-replay는 같은 body/messageId와 나머지 properties·조사 metadata를 보존하되, 운영자가 원인을 해결하고 명시적으로 승인한 새 처리 시도라는 계약에 따라 `x-retry-count`만 `0`으로 초기화해 main exchange의 `reservation.confirmed.v1`로 mandatory persistent publish한다. correlated confirm ACK와 mandatory return 없음 뒤에만 DLQ 원본을 ACK하며 실패하면 channel이 열려 있을 때 원본을 requeue한다. `ReservationNotificationRabbitMqIntegrationTest`.`single DLQ replay preserves event id and acknowledges original only after confirmed routing`은 실제 RabbitMQ에서 eventId `701`, body와 조사 metadata 보존, retry count `3→0`, DLQ 0을 확인한 뒤 실제 Consumer로 처리해 main 0, processed 1, notification 1을 검증한다. 자동·일괄 replay와 payload 수정 기능은 없다.
+replay는 같은 body/messageId와 나머지 properties·조사 metadata를 보존하되, 운영자가 원인을 해결하고 명시적으로 승인한 새 처리 시도라는 계약에 따라 `x-retry-count`만 `0`으로 초기화해 main exchange의 `reservation.confirmed.v1`로 mandatory persistent publish한다. 이후 `TRANSIENT`·`UNKNOWN` 실패만 5초→30초→2분 retry budget을 다시 사용하고, `PERMANENT_MESSAGE`·`DATA_CONSISTENCY`는 count와 관계없이 즉시 DLQ로 간다. correlated confirm ACK와 mandatory return 없음 뒤에만 DLQ 원본을 ACK하며 실패하면 channel이 열려 있을 때 원본을 requeue한다. `ReservationNotificationRabbitMqIntegrationTest`.`single DLQ replay preserves event id and acknowledges original only after confirmed routing`은 실제 RabbitMQ에서 eventId `701`, body와 조사 metadata 보존, retry count `3→0`, DLQ 0을 확인한 뒤 실제 Consumer로 처리해 main 0, processed 1, notification 1을 검증한다. 자동·일괄 replay와 payload 수정 기능은 없다.
 
 ## 5. 장애 시나리오 검증 결과
 

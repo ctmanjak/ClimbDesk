@@ -130,7 +130,7 @@ CLIMBDESK_DLQ_REPLAY_ACTION=inspect ./gradlew dlqReplayOne
 
 손상 payload를 추측해 고치거나 새 eventId를 발급하지 않는다. 계약 자체를 복구해야 하면 원본을 DLQ에 둔 채 별도 incident에서 producer contract와 신뢰 가능한 source data를 확인한다. 이 도구로 임의 payload를 생성하지 않는다.
 
-재처리 시 운영자가 원인을 해결하고 한 건 replay를 명시적으로 확인한 것을 새 처리 시도로 간주해 `x-retry-count`를 `0`으로 초기화한다. original routing, first/last-failed-at, failure metadata와 나머지 body/properties는 그대로 유지한다. replay 뒤에도 실패하면 현재 Consumer 정책의 5초→30초→2분 retry budget을 다시 거친다.
+재처리 시 운영자가 원인을 해결하고 한 건 replay를 명시적으로 확인한 것을 새 처리 시도로 간주해 `x-retry-count`를 `0`으로 초기화한다. original routing, first/last-failed-at, failure metadata와 나머지 body/properties는 그대로 유지한다. replay 뒤 실패가 `TRANSIENT` 또는 `UNKNOWN`으로 분류될 때만 현재 Consumer 정책의 5초→30초→2분 retry budget을 다시 사용한다. 계약 오류인 `PERMANENT_MESSAGE`나 예약 정합성 오류인 `DATA_CONSISTENCY`는 retry count와 관계없이 즉시 DLQ로 돌아간다.
 
 ```bash
 export CLIMBDESK_DLQ_REPLAY_ACTION=replay
