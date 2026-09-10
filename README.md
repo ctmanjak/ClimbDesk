@@ -273,3 +273,4 @@ curl -i -X POST "http://localhost:8080/api/v1/auth/login" \
 | [Roadmap](docs/09-roadmap.md) | MVP 구현 순서 |
 | [MVP API 사용 시나리오](docs/17-mvp-api-usage-scenarios.md) | 로그인부터 예약 생성·조회·취소까지 실행 흐름 |
 | [트랜잭션·동시성 설계](docs/18-transaction-concurrency-design.md) | 예약 원자성, 락, DB 제약조건, PostgreSQL 테스트 근거 |
+| [MQ 구현 결과 및 승인 설계 차이](docs/22-mq-implementation-results.md) | Transactional Outbox, RabbitMQ, 멱등 Consumer의 실제 구현·검증 결과와 설계 차이 |
